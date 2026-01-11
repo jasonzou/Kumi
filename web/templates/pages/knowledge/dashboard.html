@@ -278,6 +278,28 @@
         transform: translateX(0) !important;
     }
 
+    /* 点击确认状态（防误触） */
+    .knowledge-dashboard .collection-card.click-pending {
+        border-color: #6666FF !important;
+        box-shadow: 0 0 0 2px rgba(102, 102, 255, 0.2) !important;
+    }
+
+    .knowledge-dashboard .collection-card.click-pending::after {
+        content: '编辑知识库?';
+        position: absolute !important;
+        bottom: 0.75rem !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        background: rgba(102, 102, 255, 0.95) !important;
+        color: white !important;
+        padding: 0.35rem 0.75rem !important;
+        border-radius: 4px !important;
+        font-size: 0.85rem !important;
+        white-space: nowrap !important;
+        z-index: 10 !important;
+        pointer-events: none !important;
+    }
+
     .knowledge-dashboard .knowledge-loading-state {
         text-align: center !important;
         padding: 3rem !important;
@@ -507,10 +529,17 @@
         const menuContainer = card.querySelector('.menu-container');
         const deleteMenu = card.querySelector('.delete-menu');
 
-        // 卡片点击事件（排除操作按钮区域）
+        // 卡片点击事件（排除操作按钮区域）- 防误触机制
         card.addEventListener('click', function(e) {
             if (!e.target.closest('.more-btn') && !e.target.closest('.menu-container')) {
-                testKnowledge(collection.name);
+                if (card.dataset.clickState === 'pending') {
+                    // 第二次点击，跳转到编辑页面
+                    editKnowledge(collection.name);
+                } else {
+                    // 第一次点击，显示确认状态
+                    card.dataset.clickState = 'pending';
+                    card.classList.add('click-pending');
+                }
             }
         });
 
@@ -527,7 +556,9 @@
                 const action = this.dataset.action;
                 const collectionName = this.dataset.collection;
 
-                if (action === 'copy') {
+                if (action === 'edit') {
+                    editKnowledge(collectionName);
+                } else if (action === 'copy') {
                     copyCollectionName(collectionName);
                 } else if (action === 'delete') {
                     const displayName = this.dataset.displayName;
@@ -540,6 +571,10 @@
         let leaveTimer;
 
         function handleMouseLeave() {
+            // 复位点击状态
+            card.dataset.clickState = 'idle';
+            card.classList.remove('click-pending');
+
             leaveTimer = setTimeout(() => {
                 hideMenu(menuContainer, deleteMenu);
             }, 150); // 稍微减少延迟时间，配合快速动画
@@ -632,6 +667,10 @@
 
     function testKnowledge(collectionName) {
         window.location.href = `/web/knowledge/test?collection=${encodeURIComponent(collectionName)}`;
+    }
+
+    function editKnowledge(collectionName) {
+        window.location.href = `/web/knowledge/edit/${encodeURIComponent(collectionName)}`;
     }
 
     // 删除知识库

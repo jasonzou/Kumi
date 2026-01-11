@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+
+{% block title %}知识库编辑 - {{ collection_name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/knowledge/edit.css">
+{% endblock %}
+
+{% block content %}
+<div class="edit-container">
+    <!-- 左侧：文档表格 -->
+    <div class="table-section">
+        <div class="section-header">
+            <div class="header-left">
+                <a href="/web/knowledge" class="back-btn" title="返回知识库列表">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                <h2>{{ collection_name }}</h2>
+            </div>
+            <div class="header-actions">
+                <span id="documentCount" class="doc-count">加载中...</span>
+                <button class="btn btn-secondary btn-sm" onclick="exportToExcel()">
+                    <i class="bi bi-download"></i> 导出
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="refreshDocuments()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+            </div>
+        </div>
+
+        <!-- 文档表格 -->
+        <div class="table-wrapper" id="tableWrapper">
+            <div class="loading-state" id="loadingState">
+                <div class="spinner"></div>
+                <p>正在加载文档...</p>
+            </div>
+            <table class="document-table" id="documentTable" style="display: none;">
+                <thead>
+                    <tr id="tableHeader">
+                        <!-- 动态生成列头 -->
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- 动态生成行 -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 分页控件 -->
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                第 <span id="currentPage">1</span> / <span id="totalPages">1</span> 页，
+                共 <span id="totalDocs">0</span> 条
+            </div>
+            <!-- 每页行数选择器 -->
+            <div class="page-size-selector">
+                <span>每页</span>
+                <div class="page-size-buttons">
+                    <button class="page-size-btn" data-size="16">16</button>
+                    <button class="page-size-btn active" data-size="32">32</button>
+                    <button class="page-size-btn" data-size="64">64</button>
+                    <button class="page-size-btn" data-size="128">128</button>
+                </div>
+                <span>条</span>
+            </div>
+            <div class="pagination-controls">
+                <button class="btn btn-sm" id="prevPageBtn" onclick="prevPage()" disabled>
+                    <i class="bi bi-chevron-left"></i> 上一页
+                </button>
+                <button class="btn btn-sm" id="nextPageBtn" onclick="nextPage()" disabled>
+                    下一页 <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：编辑侧边栏 -->
+    <div class="sidebar-section" id="editSidebar">
+        <div class="sidebar-header">
+            <h3>文档详情</h3>
+            <button class="btn-close" onclick="closeSidebar()" title="关闭">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="sidebar-content" id="sidebarContent">
+            <div class="empty-state">
+                <i class="bi bi-cursor-text"></i>
+                <p>点击表格行查看文档详情</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑表单模板 -->
+<template id="editFormTemplate">
+    <div class="edit-form">
+        <div class="form-group">
+            <label>文档 ID</label>
+            <input type="text" id="editDocId" class="form-input" readonly>
+        </div>
+
+        <div class="form-group">
+            <label>Document 内容</label>
+            <textarea id="editDocContent" class="form-textarea" rows="6" placeholder="文档内容"></textarea>
+        </div>
+
+        <div class="form-group">
+            <button type="button" id="metadataToggleBtn" class="btn btn-secondary metadata-toggle-btn">
+                <span id="metadataToggleIcon">▶</span> 元数据字段
+            </button>
+        </div>
+        <div class="form-group" id="metadataFieldsGroup" style="display: none;">
+            <div id="metadataFields">
+                <!-- 动态生成元数据字段 -->
+            </div>
+        </div>
+
+        <!-- 重新向量化选项 -->
+        <div class="form-group">
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="reVectorizeCheck" checked>
+                <label for="reVectorizeCheck">保存时重新向量化</label>
+            </div>
+        </div>
+
+        <!-- 向量化选项（条件显示） -->
+        <div class="vectorize-options" id="vectorizeOptions">
+            <div class="form-group">
+                <label>Embedding 模型</label>
+                <select id="embeddingModelSelect" class="form-select">
+                    <!-- 动态加载 -->
+                </select>
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="form-actions">
+            <button class="btn btn-danger" onclick="deleteDocument()">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+            <button class="btn btn-primary" onclick="saveDocument()">
+                <i class="bi bi-check-lg"></i> 保存
+            </button>
+        </div>
+    </div>
+</template>
+
+<script>
+    // 全局变量
+    const COLLECTION_NAME = "{{ collection_name }}";
+    let currentPage = 1;
+    let pageSize = 32;
+    let totalPages = 1;
+    let totalDocs = 0;
+    let currentDocId = null;
+    let embeddingModels = [];
+    let defaultEmbeddingModel = null;
+    let currentDocumentData = null;
+
+    // 页面初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        loadDocuments();
+        loadEmbeddingModels();
+
+        // 绑定顶部导航栏按钮事件
+        document.querySelectorAll('.nav-button[data-page]').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                const page = this.getAttribute('data-page');
+                if (page) {
+                    window.location.href = `/web/${page}`;
+                }
+            });
+        });
+
+        // 绑定每页行数选择器事件
+        document.querySelectorAll('.page-size-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.page-size-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                pageSize = parseInt(this.dataset.size);
+                currentPage = 1;
+                loadDocuments();
+            });
+        });
+    });
+
+    // 加载文档列表
+    async function loadDocuments() {
+        const loadingState = document.getElementById('loadingState');
+        const table = document.getElementById('documentTable');
+
+        loadingState.style.display = 'flex';
+        table.style.display = 'none';
+
+        try {
+            const response = await fetch(
+                `/web/api/knowledge/collections/${encodeURIComponent(COLLECTION_NAME)}/documents?page=${currentPage}&page_size=${pageSize}`
+            );
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                renderDocumentTable(result.data.documents);
+                updatePagination(result.data.pagination);
+                loadingState.style.display = 'none';
+                table.style.display = 'table';
+            } else {
+                showAlert('error', result.message || '加载文档失败');
+                loadingState.innerHTML = '<p class="error-text">加载失败，请刷新重试</p>';
+            }
+        } catch (error) {
+            showAlert('error', '加载文档失败: ' + error.message);
+            loadingState.innerHTML = '<p class="error-text">加载失败，请刷新重试</p>';
+        }
+    }
+
+    // 渲染文档表格
+    function renderDocumentTable(documents) {
+        const tbody = document.getElementById('tableBody');
+        const thead = document.getElementById('tableHeader');
+
+        if (!documents || documents.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="100%" class="empty-cell">暂无数据</td></tr>';
+            thead.innerHTML = '<th>ID</th><th>Document</th><th>元数据</th>';
+            return;
+        }
+
+        // 获取所有字段（排除系统字段）
+        const allFields = Object.keys(documents[0]);
+        const systemFields = ['id', 'document', 'embedding', 'dense_vector'];
+
+        // 优先显示的字段
+        const displayFields = ['id', 'document'];
+        // 其他元数据字段（最多显示3个）
+        const metadataFields = allFields.filter(f => !systemFields.includes(f) && !displayFields.includes(f));
+        const visibleMetaFields = metadataFields.slice(0, 3);
+
+        // 渲染表头
+        let headerHtml = displayFields.map(field => `<th>${field}</th>`).join('');
+        headerHtml += visibleMetaFields.map(field => `<th>${truncate(field, 15)}</th>`).join('');
+        if (metadataFields.length > 3) {
+            headerHtml += '<th>更多...</th>';
+        }
+        thead.innerHTML = headerHtml;
+
+        // 渲染数据行
+        tbody.innerHTML = documents.map(doc => {
+            // 基础字段
+            let cellsHtml = displayFields.map(field => {
+                const value = doc[field] || '';
+                const displayValue = truncate(String(value), 50);
+                return `<td title="${escapeHtml(String(value))}">${escapeHtml(displayValue)}</td>`;
+            }).join('');
+
+            // 可见的元数据字段
+            cellsHtml += visibleMetaFields.map(field => {
+                const value = doc[field] || '';
+                const displayValue = truncate(String(value), 30);
+                return `<td class="metadata-cell" title="${escapeHtml(String(value))}">${escapeHtml(displayValue)}</td>`;
+            }).join('');
+
+            // 其他元数据（压缩显示）
+            if (metadataFields.length > 3) {
+                const otherMeta = metadataFields.slice(3)
+                    .map(f => `${f}: ${truncate(String(doc[f] || ''), 15)}`)
+                    .join('; ');
+                cellsHtml += `<td class="metadata-collapsed" title="${escapeHtml(otherMeta)}">${escapeHtml(truncate(otherMeta, 30))}</td>`;
+            }
+
+            return `<tr data-id="${doc.id}" onclick="selectDocument('${doc.id}')" class="${currentDocId === doc.id ? 'selected' : ''}">${cellsHtml}</tr>`;
+        }).join('');
+    }
+
+    // 选中文档
+    async function selectDocument(docId) {
+        // 更新选中状态
+        document.querySelectorAll('.document-table tbody tr').forEach(tr => {
+            tr.classList.remove('selected');
+        });
+        const selectedRow = document.querySelector(`tr[data-id="${docId}"]`);
+        if (selectedRow) {
+            selectedRow.classList.add('selected');
+        }
+
+        currentDocId = docId;
+
+        // 显示加载状态
+        const sidebarContent = document.getElementById('sidebarContent');
+        sidebarContent.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>加载文档详情...</p></div>';
+
+        // 加载文档详情
+        try {
+            const response = await fetch(
+                `/web/api/knowledge/collections/${encodeURIComponent(COLLECTION_NAME)}/documents/${encodeURIComponent(docId)}`
+            );
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                currentDocumentData = result.data;
+                renderEditForm(result.data);
+            } else {
+                showAlert('error', result.message || '加载文档详情失败');
+                sidebarContent.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>加载失败</p></div>';
+            }
+        } catch (error) {
+            showAlert('error', '加载文档详情失败: ' + error.message);
+            sidebarContent.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>加载失败</p></div>';
+        }
+    }
+
+    // 渲染编辑表单
+    function renderEditForm(doc) {
+        const template = document.getElementById('editFormTemplate');
+        const content = document.getElementById('sidebarContent');
+
+        content.innerHTML = template.innerHTML;
+
+        // 填充数据
+        document.getElementById('editDocId').value = doc.id;
+        document.getElementById('editDocContent').value = doc.document || '';
+
+        // 渲染元数据字段
+        const metadataFields = document.getElementById('metadataFields');
+        const excludeFields = ['id', 'document', 'embedding', 'dense_vector'];
+
+        const metadataEntries = Object.entries(doc).filter(([key]) => !excludeFields.includes(key));
+
+        if (metadataEntries.length > 0) {
+            const metadataHtml = metadataEntries.map(([key, value]) => `
+                <div class="metadata-field">
+                    <label>${escapeHtml(key)}</label>
+                    <input type="text" class="form-input" data-field="${escapeHtml(key)}" value="${escapeHtml(String(value || ''))}">
+                </div>
+            `).join('');
+            metadataFields.innerHTML = metadataHtml;
+        } else {
+            metadataFields.innerHTML = '<p class="no-metadata">无元数据字段</p>';
+        }
+
+        // 元数据折叠切换
+        const metadataToggleBtn = document.getElementById('metadataToggleBtn');
+        const metadataToggleIcon = document.getElementById('metadataToggleIcon');
+        const metadataFieldsGroup = document.getElementById('metadataFieldsGroup');
+
+        metadataToggleBtn.addEventListener('click', function() {
+            const isExpanded = metadataFieldsGroup.style.display !== 'none';
+            if (isExpanded) {
+                metadataFieldsGroup.style.display = 'none';
+                metadataToggleBtn.classList.remove('active');
+                metadataToggleIcon.classList.remove('rotated');
+                metadataToggleIcon.textContent = '▶';
+            } else {
+                metadataFieldsGroup.style.display = 'block';
+                metadataToggleBtn.classList.add('active');
+                metadataToggleIcon.classList.add('rotated');
+                metadataToggleIcon.textContent = '▼';
+            }
+        });
+
+        // 设置重新向量化复选框事件
+        const reVectorizeCheck = document.getElementById('reVectorizeCheck');
+        const vectorizeOptions = document.getElementById('vectorizeOptions');
+
+        reVectorizeCheck.addEventListener('change', function() {
+            vectorizeOptions.style.display = this.checked ? 'block' : 'none';
+        });
+
+        // 加载 embedding 模型到选择框
+        renderEmbeddingModelSelect();
+    }
+
+    // 保存文档
+    async function saveDocument() {
+        if (!currentDocId) return;
+
+        const documentContent = document.getElementById('editDocContent').value;
+        const reVectorize = document.getElementById('reVectorizeCheck').checked;
+
+        // 收集元数据
+        const metadata = {};
+        document.querySelectorAll('#metadataFields input[data-field]').forEach(input => {
+            metadata[input.dataset.field] = input.value;
+        });
+
+        // 构建请求体
+        const requestBody = {
+            document: documentContent,
+            metadata: metadata,
+            re_vectorize: reVectorize
+        };
+
+        if (reVectorize) {
+            const modelSelect = document.getElementById('embeddingModelSelect');
+            if (modelSelect && modelSelect.value) {
+                requestBody.embedding_model = modelSelect.value;
+            }
+        }
+
+        // 显示保存中状态
+        const saveBtn = document.querySelector('.form-actions .btn-primary');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 保存中...';
+        saveBtn.disabled = true;
+
+        try {
+            const response = await fetch(
+                `/web/api/knowledge/collections/${encodeURIComponent(COLLECTION_NAME)}/documents/${encodeURIComponent(currentDocId)}`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                }
+            );
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                showAlert('success', result.message);
+                loadDocuments(); // 刷新列表
+            } else {
+                // 检查是否是维度不匹配错误
+                const errorMsg = result.message || '保存失败';
+                if (errorMsg.includes('dimension')) {
+                    showAlert('error', '向量维度不匹配：当前文档使用的 Embedding 模型与原始模型不同，请选择正确的模型或取消勾选"重新向量化"');
+                } else {
+                    showAlert('error', errorMsg);
+                }
+            }
+        } catch (error) {
+            showAlert('error', '保存失败: ' + error.message);
+        } finally {
+            saveBtn.innerHTML = originalText;
+            saveBtn.disabled = false;
+        }
+    }
+
+    // 删除文档
+    async function deleteDocument() {
+        if (!currentDocId) return;
+
+        if (!confirm('确定要删除这条记录吗？此操作不可撤销。')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                `/web/api/knowledge/collections/${encodeURIComponent(COLLECTION_NAME)}/documents/${encodeURIComponent(currentDocId)}`,
+                { method: 'DELETE' }
+            );
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                showAlert('success', '删除成功');
+                currentDocId = null;
+                currentDocumentData = null;
+                closeSidebar();
+                loadDocuments(); // 刷新列表
+            } else {
+                showAlert('error', result.message || '删除失败');
+            }
+        } catch (error) {
+            showAlert('error', '删除失败: ' + error.message);
+        }
+    }
+
+    // 加载 embedding 模型列表
+    async function loadEmbeddingModels() {
+        try {
+            const response = await fetch('/web/api/knowledge/embedding/models');
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                embeddingModels = result.data.models || [];
+                defaultEmbeddingModel = result.data.default;
+            }
+        } catch (error) {
+            console.error('加载embedding模型失败:', error);
+        }
+    }
+
+    // 渲染 embedding 模型选择框
+    function renderEmbeddingModelSelect() {
+        const select = document.getElementById('embeddingModelSelect');
+        if (!select || embeddingModels.length === 0) return;
+
+        select.innerHTML = embeddingModels.map(model => {
+            const isDefault = defaultEmbeddingModel &&
+                model.display_name === defaultEmbeddingModel.display_name;
+            return `<option value="${model.display_name}" ${isDefault ? 'selected' : ''}>${model.display_name}</option>`;
+        }).join('');
+    }
+
+    // 分页函数
+    function updatePagination(pagination) {
+        currentPage = pagination.page;
+        totalPages = pagination.pages;
+        totalDocs = pagination.total;
+
+        document.getElementById('currentPage').textContent = currentPage;
+        document.getElementById('totalPages').textContent = totalPages;
+        document.getElementById('totalDocs').textContent = totalDocs;
+        document.getElementById('documentCount').textContent = `共 ${totalDocs} 条记录`;
+
+        document.getElementById('prevPageBtn').disabled = currentPage <= 1;
+        document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+    }
+
+    function prevPage() {
+        if (currentPage > 1) {
+            currentPage--;
+            loadDocuments();
+        }
+    }
+
+    function nextPage() {
+        if (currentPage < totalPages) {
+            currentPage++;
+            loadDocuments();
+        }
+    }
+
+    function refreshDocuments() {
+        loadDocuments();
+    }
+
+    // 导出为 Excel
+    async function exportToExcel() {
+        const exportBtn = event.target.closest('button');
+        const originalText = exportBtn.innerHTML;
+        exportBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 导出中...';
+        exportBtn.disabled = true;
+
+        try {
+            const response = await fetch(
+                `/web/api/knowledge/collections/${encodeURIComponent(COLLECTION_NAME)}/export`
+            );
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${COLLECTION_NAME}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+                showAlert('success', '导出成功');
+            } else {
+                const result = await response.json();
+                showAlert('error', result.message || '导出失败');
+            }
+        } catch (error) {
+            showAlert('error', '导出失败: ' + error.message);
+        } finally {
+            exportBtn.innerHTML = originalText;
+            exportBtn.disabled = false;
+        }
+    }
+
+    function closeSidebar() {
+        document.getElementById('sidebarContent').innerHTML = `
+            <div class="empty-state">
+                <i class="bi bi-cursor-text"></i>
+                <p>点击表格行查看文档详情</p>
+            </div>
+        `;
+        document.querySelectorAll('.document-table tbody tr').forEach(tr => {
+            tr.classList.remove('selected');
+        });
+        currentDocId = null;
+        currentDocumentData = null;
+    }
+
+    // 工具函数
+    function truncate(str, maxLen) {
+        if (!str) return '';
+        return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function showAlert(type, message) {
+        const alertEl = document.createElement('div');
+        alertEl.className = `temp-message ${type}`;
+        alertEl.innerHTML = `
+            <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${escapeHtml(message)}</span>
+        `;
+        document.body.appendChild(alertEl);
+
+        // 动画效果
+        requestAnimationFrame(() => {
+            alertEl.classList.add('show');
+        });
+
+        setTimeout(() => {
+            alertEl.classList.remove('show');
+            setTimeout(() => alertEl.remove(), 300);
+        }, 3000);
+    }
+</script>
+{% endblock %}

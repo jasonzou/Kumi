@@ -5,8 +5,9 @@
 // =====
 let heatmapUpdateTimer = null;
 let statsUpdateTimer = null;
-const DEBOUNCE_DELAY = 5; // 5ms防抖延迟
-
+let dynamicDebounceDelay = 5; // 动态防抖延迟，基于上一次zOnly更新耗时，最小5ms
+const MIN_DEBOUNCE_DELAY = 5; // 最小防抖延迟
+const MAX_DEBOUNCE_DELAY = 200; // 最大防抖延迟
 // =====
 // 动态侧边栏配置与逻辑
 // =====
@@ -1280,13 +1281,16 @@ function removeCollectionSelect(button) {
  * @returns {Array<Array<boolean>>} - 布尔矩阵，true表示通过筛选
  */
 function computeThresholdMask(matrix, minSim, maxSim) {
+    const startTime = performance.now();
     console.log(`[布尔矩阵] 计算阈值遮罩: ${minSim.toFixed(2)} - ${maxSim.toFixed(2)}`);
-    return matrix.map(row =>
+    const result = matrix.map(row =>
         row.map(val => {
             if (val === null || val === undefined) return false;
             return val >= minSim && val <= maxSim;
         })
     );
+    console.log(`[DEBUG] 计算阈值遮罩 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+    return result;
 }
 
 /**
@@ -1297,11 +1301,14 @@ function computeThresholdMask(matrix, minSim, maxSim) {
  * @returns {Array<Array<boolean>>} - 布尔矩阵，true表示是Top-K
  */
 function computeTopKMask(matrix, topK, axis) {
+    const startTime = performance.now();
     console.log(`[布尔矩阵] 计算Top-K遮罩: Top-${topK}, 轴: ${axis}`);
 
     if (topK === 0) {
         // Top-K为0，全部通过
-        return matrix.map(row => row.map(() => true));
+        const result = matrix.map(row => row.map(() => true));
+        console.log(`[DEBUG] 计算Top-K遮罩 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+        return result;
     }
 
     // 初始化布尔矩阵为false
@@ -1352,6 +1359,7 @@ function computeTopKMask(matrix, topK, axis) {
         }
     }
 
+    console.log(`[DEBUG] 计算Top-K遮罩 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
     return mask;
 }
 
@@ -1362,10 +1370,13 @@ function computeTopKMask(matrix, topK, axis) {
  * @returns {Array<Array<boolean>>} - AND运算后的布尔矩阵
  */
 function combineWithAND(mask1, mask2) {
+    const startTime = performance.now();
     console.log('[布尔矩阵] 执行AND合并');
-    return mask1.map((row, i) =>
+    const result = mask1.map((row, i) =>
         row.map((val, j) => val && mask2[i][j])
     );
+    console.log(`[DEBUG] AND合并 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+    return result;
 }
 
 /**
@@ -1374,6 +1385,7 @@ function combineWithAND(mask1, mask2) {
  * @returns {Array<Array<boolean>>} - OR运算后的布尔矩阵
  */
 function combineWithOR(masks) {
+    const startTime = performance.now();
     if (masks.length === 0) {
         console.warn('[布尔矩阵] OR合并：没有输入遮罩');
         return null;
@@ -1381,16 +1393,19 @@ function combineWithOR(masks) {
 
     if (masks.length === 1) {
         console.log('[布尔矩阵] OR合并：只有一个遮罩，直接返回');
+        console.log(`[DEBUG] OR合并 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
         return masks[0];
     }
 
     console.log(`[布尔矩阵] 执行OR合并：${masks.length}个遮罩`);
 
-    return masks.reduce((result, mask) =>
+    const result = masks.reduce((result, mask) =>
         result.map((row, i) =>
             row.map((val, j) => val || mask[i][j])
         )
     );
+    console.log(`[DEBUG] OR合并 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+    return result;
 }
 
 /**
@@ -1400,10 +1415,13 @@ function combineWithOR(masks) {
  * @returns {Array<Array<number|null>>} - 应用遮罩后的矩阵
  */
 function applyMask(originalMatrix, mask) {
+    const startTime = performance.now();
     console.log('[布尔矩阵] 应用遮罩到原始数据');
-    return originalMatrix.map((row, i) =>
+    const result = originalMatrix.map((row, i) =>
         row.map((val, j) => mask[i][j] ? val : null)
     );
+    console.log(`[DEBUG] 应用遮罩 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+    return result;
 }
 
 /**
@@ -1494,6 +1512,7 @@ function checkMatrixSizeConsistency(newIndex, buttonType) {
  * @returns {Array<Array<boolean>>|null} - 最终布尔遮罩
  */
 function computeFinalMaskForMatrix(index) {
+    const startTime = performance.now();
     if (index < 0 || index >= allSimilarityResults.length) {
         console.error(`[布尔矩阵] 无效的图表索引: ${index}`);
         return null;
@@ -1530,6 +1549,7 @@ function computeFinalMaskForMatrix(index) {
     config.cachedMasks.topKMask = topKMask;
     config.cachedMasks.finalMask = finalMask;
 
+    console.log(`[DEBUG] 计算图 ${index} 最终遮罩 耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
     return finalMask;
 }
 
@@ -1601,9 +1621,10 @@ function applyTemporaryFilterToUI() {
 // =====
 
 // 生成唯一标签函数，使用零宽字符和不间断空格确保唯一性
+// 刻度标签超过 MAX_LABEL_LENGTH 字符时截断，悬浮提示仍显示完整内容
 function generateUniqueLabels(data, field) {
-    // 使用 Map 来跟踪每个值的出现次数
-    const valueCountMap = new Map();
+    const displayValueCountMap = new Map();  // 跟踪截断后的显示值，确保 Plotly 收到的标签唯一
+    const MAX_LABEL_LENGTH = 10;
 
     return data.map((item) => {
         let baseValue;
@@ -1613,19 +1634,25 @@ function generateUniqueLabels(data, field) {
             baseValue = String(item[field] || 'N/A');
         }
 
-        // 跟踪值的出现次数
-        const currentCount = valueCountMap.get(baseValue) || 0;
-        valueCountMap.set(baseValue, currentCount + 1);
+        // 截断显示值（用于刻度标签）
+        let displayValue = baseValue;
+        if (baseValue.length > MAX_LABEL_LENGTH) {
+            displayValue = baseValue.slice(0, MAX_LABEL_LENGTH) + '...';
+        }
 
-        // 如果值重复，添加零宽字符和不间断空格来确保唯一性
+        // 跟踪截断后显示值的出现次数（不同原始值截断后可能相同，需要区分）
+        const currentCount = displayValueCountMap.get(displayValue) || 0;
+        displayValueCountMap.set(displayValue, currentCount + 1);
+
+        // 如果显示值重复，添加零宽字符和不间断空格来确保唯一性
         if (currentCount > 0) {
             // 零宽字符：\u200B (零宽空格)
             // 不间断空格：\u00A0
             // 根据重复次数添加不同数量的零宽字符
             const uniqueSuffix = '\u200B'.repeat(currentCount) + '\u00A0';
-            return baseValue + uniqueSuffix;
+            return displayValue + uniqueSuffix;
         } else {
-            return baseValue;
+            return displayValue;
         }
     });
 }
@@ -2015,12 +2042,14 @@ function getCurrentDisplayCount() {
 }
 
 // 更新热力图（实时响应控制变化）- 新架构：使用布尔矩阵
-function updateHeatmap() {
+// zOnly: 为true时只更新z矩阵（用于筛选器变化），false时更新全部（用于显示字段切换等）
+function updateHeatmap(zOnly = true) {
+    const startTime = performance.now();
     if (!filteredMatrix) {
         return;
     }
 
-    console.log('[updateHeatmap] 开始更新 - 使用新布尔矩阵架构');
+    console.log('[updateHeatmap] 开始更新 - 使用新布尔矩阵架构' + (zOnly ? ' (zOnly模式)' : ' (完整模式)'));
 
     // 保存当前的缩放和选中状态
     let currentLayout = null;
@@ -2063,14 +2092,38 @@ function updateHeatmap() {
     let displayXLabels = [...currentXLabels];
     let displayYLabels = [...currentYLabels];
     // 更新热力图数据，但保持当前的缩放状态
-    updateHeatmapData(displayMatrix, displayXLabels, displayYLabels, currentLayout);
+    updateHeatmapData(displayMatrix, displayXLabels, displayYLabels, currentLayout, zOnly);
 
     // 更新统计信息中的当前显示对比数
     updateCurrentDisplayStat();
+
+    const elapsed = performance.now() - startTime;
+    console.log(`[DEBUG] updateHeatmap 总耗时: ${(elapsed / 1000).toFixed(3)}s`);
+
+    // zOnly模式时，更新动态防抖延迟
+    if (zOnly) {
+        dynamicDebounceDelay = Math.max(MIN_DEBOUNCE_DELAY, Math.ceil(elapsed));
+        dynamicDebounceDelay = Math.min(MAX_DEBOUNCE_DELAY, Math.ceil(elapsed));
+        console.log(`[DEBUG] 动态防抖延迟更新为: ${dynamicDebounceDelay}ms`);
+    }
 }
 
 // 更新热力图数据但保持缩放状态
-function updateHeatmapData(matrix, xLabels, yLabels, preserveLayout = null) {
+// zOnly: 为true时只更新z矩阵（用于筛选器变化），性能更好
+function updateHeatmapData(matrix, xLabels, yLabels, preserveLayout = null, zOnly = true) {
+    const startTime = performance.now();
+    let stepTime = performance.now();
+
+    if (preserveLayout && zOnly) {
+        // 快速模式：只更新z矩阵数据
+        Plotly.restyle('heatmap', {
+            z: [matrix]
+        });
+        console.log(`[DEBUG] updateHeatmapData - Plotly.restyle(zOnly) 耗时: ${((performance.now() - stepTime) / 1000).toFixed(3)}s`);
+        console.log(`[DEBUG] updateHeatmapData 总耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
+        return;
+    }
+
     // 获取当前模式的相似度范围
     const range = getCurrentSimilarityRange();
 
@@ -2111,6 +2164,9 @@ function updateHeatmapData(matrix, xLabels, yLabels, preserveLayout = null) {
             };
         })
     );
+    console.log(`[DEBUG] updateHeatmapData - 准备customdata 耗时: ${((performance.now() - stepTime) / 1000).toFixed(3)}s`);
+    stepTime = performance.now();
+
     isInDifferenceMode() ? '差值' : '相似度';
     isInDifferenceMode() ? 0.2 : 0.1;
 
@@ -2126,29 +2182,44 @@ function updateHeatmapData(matrix, xLabels, yLabels, preserveLayout = null) {
             zmin: [range.min],  // 添加这行
             zmax: [range.max]   // 添加这行
         });
+        console.log(`[DEBUG] updateHeatmapData - Plotly.restyle(full) 耗时: ${((performance.now() - stepTime) / 1000).toFixed(3)}s`);
+        stepTime = performance.now();
+
+        // 更新坐标轴标题（动态生成）
+        // 使用主数据源的 collection 名称
+        const primaryIndex = globalUIState.dataSource.primaryIndex;
+        const matrixData = (primaryIndex !== null) ? allSimilarityResults[primaryIndex] : null;
+        const xCollectionName = matrixData ? matrixData.xCollection : '';
+        const yCollectionName = matrixData ? matrixData.yCollection : '';
+        const xFieldName = xDisplayField === 'order_id' ? '顺序ID' : xDisplayField;
+        const yFieldName = yDisplayField === 'order_id' ? '顺序ID' : yDisplayField;
 
         // 如果需要恢复特定的缩放范围，使用 relayout
-        if (preserveLayout.xaxis.range || preserveLayout.yaxis.range) {
-            const layoutUpdate = {};
+        const layoutUpdate = {
+            'xaxis.title': `${xCollectionName} (${xFieldName})`,
+            'yaxis.title': `${yCollectionName} (${yFieldName})`,
+            'xaxis.type': 'category',  // 强制保持分类类型
+            'yaxis.type': 'category'   // 强制保持分类类型
+        };
 
-            if (preserveLayout.xaxis.range) {
-                layoutUpdate['xaxis.range'] = preserveLayout.xaxis.range;
-                layoutUpdate['xaxis.autorange'] = false;
-            }
-
-            if (preserveLayout.yaxis.range) {
-                layoutUpdate['yaxis.range'] = preserveLayout.yaxis.range;
-                layoutUpdate['yaxis.autorange'] = false;
-            }
-
-            if (Object.keys(layoutUpdate).length > 0) {
-                Plotly.relayout('heatmap', layoutUpdate);
-            }
+        if (preserveLayout.xaxis.range) {
+            layoutUpdate['xaxis.range'] = preserveLayout.xaxis.range;
+            layoutUpdate['xaxis.autorange'] = false;
         }
+
+        if (preserveLayout.yaxis.range) {
+            layoutUpdate['yaxis.range'] = preserveLayout.yaxis.range;
+            layoutUpdate['yaxis.autorange'] = false;
+        }
+
+        Plotly.relayout('heatmap', layoutUpdate);
+        console.log(`[DEBUG] updateHeatmapData - Plotly.relayout 耗时: ${((performance.now() - stepTime) / 1000).toFixed(3)}s`);
     } else {
         // 如果没有保存的布局状态，使用完整的重新绘制
         createHeatmap(matrix, xLabels, yLabels);
+        console.log(`[DEBUG] updateHeatmapData - createHeatmap 耗时: ${((performance.now() - stepTime) / 1000).toFixed(3)}s`);
     }
+    console.log(`[DEBUG] updateHeatmapData 总耗时: ${((performance.now() - startTime) / 1000).toFixed(3)}s`);
 }
 
 // 更新当前显示对比数统计
@@ -2259,7 +2330,9 @@ function createHeatmap(matrix = filteredMatrix, xLabels = currentXLabels, yLabel
     const availableHeight = containerRect.height;
 
     // 动态生成坐标轴标题
-    const matrixData = allSimilarityResults[currentMatrixIndex];
+    // 使用主数据源的 collection 名称
+    const primaryIndex = globalUIState.dataSource.primaryIndex;
+    const matrixData = (primaryIndex !== null) ? allSimilarityResults[primaryIndex] : null;
     const xCollectionName = matrixData ? matrixData.xCollection : '';
     const yCollectionName = matrixData ? matrixData.yCollection : '';
 
@@ -2278,13 +2351,15 @@ function createHeatmap(matrix = filteredMatrix, xLabels = currentXLabels, yLabel
             tickangle: -45,
             side: 'bottom',
             tickfont: { size: 9 },
-            titlefont: { color: '#404040' }
+            titlefont: { color: '#404040' },
+            type: 'category'  // 强制使用分类类型，防止Plotly将数字开头的标签误识别为数值/日期
         },
         yaxis: {
             title: `${yCollectionName} (${yFieldName})`,
             autorange: 'reversed',
             tickfont: { size: 9 },
-            titlefont: { color: '#404040' }
+            titlefont: { color: '#404040' },
+            type: 'category'  // 强制使用分类类型，防止Plotly将数字开头的标签误识别为数值/日期
         },
         hoverlabel: {
             bgcolor: 'rgba(255, 255, 255, 0.2)',  // 白色背景,透明度90%
@@ -2309,6 +2384,46 @@ function createHeatmap(matrix = filteredMatrix, xLabels = currentXLabels, yLabel
         displaylogo: false,
         scrollZoom: true
     };
+
+    // 调试：详细检查所有labels
+    console.log('[DEBUG] createHeatmap - Total labels:', xLabels.length, 'x', yLabels.length);
+
+    let invalidXLabels = [];
+    xLabels.forEach((label, i) => {
+        if (label === undefined || label === null || (typeof label === 'number' && isNaN(label)) || label === 'NaN') {
+            invalidXLabels.push({ index: i, value: label, type: typeof label });
+        }
+    });
+
+    let invalidYLabels = [];
+    yLabels.forEach((label, i) => {
+        if (label === undefined || label === null || (typeof label === 'number' && isNaN(label)) || label === 'NaN') {
+            invalidYLabels.push({ index: i, value: label, type: typeof label });
+        }
+    });
+
+    if (invalidXLabels.length > 0) {
+        console.error('[ERROR] Found', invalidXLabels.length, 'invalid xLabels:', invalidXLabels);
+    }
+    if (invalidYLabels.length > 0) {
+        console.error('[ERROR] Found', invalidYLabels.length, 'invalid yLabels:', invalidYLabels);
+    }
+
+    console.log('[DEBUG] xLabels sample (first 5):', xLabels.slice(0, 5));
+    console.log('[DEBUG] xLabels sample (last 5):', xLabels.slice(-5));
+    console.log('[DEBUG] yLabels sample (first 5):', yLabels.slice(0, 5));
+    console.log('[DEBUG] yLabels sample (last 5):', yLabels.slice(-5));
+
+    // 特别检查570-580范围
+    if (xLabels.length > 575) {
+        console.log('[DEBUG] xLabels[570-580]:', xLabels.slice(570, 581));
+    }
+    if (yLabels.length > 575) {
+        console.log('[DEBUG] yLabels[570-580]:', yLabels.slice(570, 581));
+    }
+
+    console.log('[DEBUG] xaxis type:', layout.xaxis.type);
+    console.log('[DEBUG] yaxis type:', layout.yaxis.type);
 
     // 使用 Plotly.newPlot 重新创建图表
     Plotly.newPlot('heatmap', [trace], layout, config);
@@ -2684,7 +2799,7 @@ function initRangeSlider() {
                     }
                 }, 50);
             }
-        }, DEBOUNCE_DELAY);
+        }, dynamicDebounceDelay);
     }
 
     minSlider.addEventListener('input', function () {
@@ -2790,16 +2905,17 @@ function initTopkSlider() {
                 updateHeatmap();
 
                 // 统计信息也使用防抖,在热力图更新后执行
+                // 传递 activatePanel=false，只更新数据不打开面板
                 clearTimeout(statsUpdateTimer);
                 statsUpdateTimer = setTimeout(() => {
                     if (globalUIState.dataSource.subtractIndex !== null) {
-                        showDifferenceStatistics();
+                        showDifferenceStatistics(false);
                     } else {
-                        showStatistics();
+                        showStatistics(false);
                     }
                 }, 50);
             }
-        }, DEBOUNCE_DELAY);
+        }, dynamicDebounceDelay);
     });
 
     updateTopkDisplayInternal();
@@ -2828,7 +2944,7 @@ function initColorSchemeSelector() {
 
             // 重新绘制热力图
             if (filteredMatrix) {
-                updateHeatmap();
+                updateHeatmap(false);
             }
         });
     });
@@ -2867,7 +2983,7 @@ function initDisplayFieldSelectors() {
                 globalUIState.dataSource.currentXData,
                 xField
             );
-            updateHeatmapFromGlobalState(false);
+            updateHeatmapFromGlobalState(false, false);  // zOnly=false 因为需要更新坐标轴标签
         }
     });
 
@@ -2892,7 +3008,7 @@ function initDisplayFieldSelectors() {
                 globalUIState.dataSource.currentYData,
                 yField
             );
-            updateHeatmapFromGlobalState(false);
+            updateHeatmapFromGlobalState(false, false);  // zOnly=false 因为需要更新坐标轴标签
         }
     });
 }
@@ -2997,6 +3113,91 @@ async function exportToJSON() {
         // 恢复按钮状态
         const exportBtn = document.getElementById('exportJsonBtn');
         exportBtn.textContent = '导出JSON';
+        exportBtn.disabled = false;
+    }
+}
+
+// 导出所有JSON功能
+async function exportAllToJSON() {
+    if (!allSimilarityResults || allSimilarityResults.length === 0) {
+        showError('没有可导出的数据，请先计算相似度');
+        return;
+    }
+
+    const exportBtn = document.getElementById('exportAllJsonBtn');
+    const totalCount = allSimilarityResults.length;
+
+    try {
+        exportBtn.disabled = true;
+
+        for (let i = 0; i < totalCount; i++) {
+            exportBtn.textContent = `导出中 (${i + 1}/${totalCount})...`;
+
+            const selectedResult = allSimilarityResults[i];
+
+            // 构建导出数据结构（与单个导出一致）
+            const exportData = {
+                version: "1.0",
+                timestamp: new Date().toISOString(),
+                exportedMatrix: {
+                    index: i,
+                    xCollection: selectedResult.xCollection,
+                    yCollection: selectedResult.yCollection,
+                    matrix: selectedResult.matrix,
+                    xData: selectedResult.xData,
+                    yData: selectedResult.yData,
+                    xAvailableFields: selectedResult.xAvailableFields,
+                    yAvailableFields: selectedResult.yAvailableFields
+                },
+                visualConfig: {
+                    displayFields: {
+                        xField: selectedResult.visualConfig.displayFields.xField,
+                        yField: selectedResult.visualConfig.displayFields.yField
+                    },
+                    similarityRange: {
+                        min: selectedResult.visualConfig.similarityRange.min,
+                        max: selectedResult.visualConfig.similarityRange.max
+                    },
+                    filters: {
+                        topK: {
+                            value: selectedResult.visualConfig.filters.topK.value,
+                            axis: selectedResult.visualConfig.filters.topK.axis
+                        }
+                    },
+                    sorting: {
+                        order: selectedResult.visualConfig.sorting.order
+                    }
+                }
+            };
+
+            const jsonString = JSON.stringify(exportData, null, 2);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filename = `相似度分析_图${i + 1}_${selectedResult.xCollection}_vs_${selectedResult.yCollection}_${timestamp}.json`;
+
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            // 下载间隔，避免浏览器拦截
+            if (i < totalCount - 1) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+
+        showSuccess(`已成功导出 ${totalCount} 个JSON文件`);
+
+    } catch (error) {
+        console.error('导出所有JSON时出错:', error);
+        showError('导出JSON失败: ' + error.message);
+    } finally {
+        exportBtn.textContent = '导出所有JSON';
         exportBtn.disabled = false;
     }
 }
@@ -3396,7 +3597,8 @@ function toggleApplyDataButton(index) {
     }
 
     updateMatrixListUI();
-    updateHeatmapFromGlobalState();
+    // 切换图表时只更新数据，不主动打开统计面板
+    updateHeatmapFromGlobalState(false, false);  // zOnly=false 因为切换图表需要更新坐标轴等
 }
 
 /**
@@ -3571,7 +3773,8 @@ function toggleApplyFilterButton(index) {
     mergeFilters();
 
     updateMatrixListUI();
-    updateHeatmapFromGlobalState();
+    // 切换图表时只更新数据，不主动打开统计面板
+    updateHeatmapFromGlobalState(false, false);  // zOnly=false 因为切换图表需要更新坐标轴等
 }
 
 /**
@@ -3696,7 +3899,8 @@ async function enterExclusiveMode(index) {
     showInfo('已进入独占编辑模式，您的修改将保存到此图的配置中', 3000);
 
     // *** 修复Bug: 等待热力图更新完成 ***
-    await updateHeatmapFromGlobalState();
+    // 进入独占模式时只更新数据，不主动打开统计面板
+    await updateHeatmapFromGlobalState(false, false);  // zOnly=false 因为进入独占模式需要更新坐标轴等
 }
 
 /**
@@ -3951,8 +4155,10 @@ function showDifferenceStatistics(activatePanel = true) {
 
 /**
  * 从全局状态更新热力图
+ * @param {boolean} activatePanel - 是否激活面板
+ * @param {boolean} zOnly - 是否只更新z矩阵（用于筛选器变化），false时更新全部（用于显示字段切换等）
  */
-async function updateHeatmapFromGlobalState(activatePanel = true) {
+async function updateHeatmapFromGlobalState(activatePanel = true, zOnly = true) {
     if (!globalUIState.dataSource.currentMatrix) {
         console.log('[热力图] 没有数据源，跳过更新');
         return;
@@ -3971,6 +4177,11 @@ async function updateHeatmapFromGlobalState(activatePanel = true) {
 
     // 更新相似度滑块范围（差值模式需要 -1 到 1）
     updateSimilaritySliderRangeForGlobalState();
+
+    // 切换图表时更新Top-K滑块最大值
+    if (!zOnly) {
+        updateTopkSliderMax();
+    }
 
     // *** 修复Bug1: 先显示统计信息和激活右侧栏，再绘制热力图 ***
     if (globalUIState.dataSource.primaryIndex !== null) {
@@ -3991,9 +4202,9 @@ async function updateHeatmapFromGlobalState(activatePanel = true) {
         // *** 修复Bug: 首次创建热力图后，立即调用updateHeatmap以应用筛选器 ***
         // createHeatmap()只是绘制完整图形，筛选器需要通过updateHeatmap()应用
         console.log('[热力图] 首次创建完成，立即应用筛选器');
-        updateHeatmap();
+        updateHeatmap(zOnly);
     } else {
-        updateHeatmap();
+        updateHeatmap(zOnly);
     }
 
     // 显示操作区域 - 面板会在showStatistics中自动打开

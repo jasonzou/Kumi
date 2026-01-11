@@ -219,6 +219,14 @@ async def knowledge_test(request: Request):
     return templates.TemplateResponse("pages/knowledge/test.html", context)
 
 
+@router.get("/knowledge/edit/{collection_name}", response_class=HTMLResponse)
+async def knowledge_edit(request: Request, collection_name: str):
+    """知识库编辑页面"""
+    context = get_template_context(request, "knowledge_edit")
+    context["collection_name"] = collection_name
+    return templates.TemplateResponse("pages/knowledge/edit.html", context)
+
+
 # ==================== 大模型相关路由 ====================
 
 @router.get("/llm/config", response_class=HTMLResponse)

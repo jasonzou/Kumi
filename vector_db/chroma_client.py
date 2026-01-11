@@ -251,14 +251,30 @@ class ChromaDBClient(VectorDBInterface):
 
             # 格式化结果
             formatted_results = []
-            if results['ids']:
+            if results['ids'] and len(results['ids']) > 0:
                 for i in range(len(results['ids'])):
                     result = {
-                        'id': results['ids'][i],
-                        'document': results['documents'][i] if results['documents'] else "",
-                        'metadata': results['metadatas'][i] if results['metadatas'] else {},
-                        'embedding': results['embeddings'][i] if results['embeddings'] else []
+                        'id': results['ids'][i]
                     }
+
+                    # 安全地处理 documents
+                    if results.get('documents') is not None and i < len(results['documents']):
+                        result['document'] = results['documents'][i] if results['documents'][i] is not None else ""
+                    else:
+                        result['document'] = ""
+
+                    # 安全地处理 metadatas
+                    if results.get('metadatas') is not None and i < len(results['metadatas']):
+                        result['metadata'] = results['metadatas'][i] if results['metadatas'][i] is not None else {}
+                    else:
+                        result['metadata'] = {}
+
+                    # 安全地处理 embeddings
+                    if results.get('embeddings') is not None and i < len(results['embeddings']):
+                        result['embedding'] = results['embeddings'][i] if results['embeddings'][i] is not None else []
+                    else:
+                        result['embedding'] = []
+
                     formatted_results.append(result)
 
             return formatted_results
@@ -351,3 +367,76 @@ class ChromaDBClient(VectorDBInterface):
         except Exception as e:
             print(f"❌ 获取字段失败: {e}")
             return []
+
+    def update_data(self, collection_name: str, ids: List[str],
+                    embeddings: Optional[List[List[float]]] = None,
+                    documents: Optional[List[str]] = None,
+                    metadatas: Optional[List[Dict[str, Any]]] = None) -> bool:
+        """更新数据
+
+        Args:
+            collection_name: 集合名称
+            ids: 要更新的文档ID列表
+            embeddings: 新的向量嵌入（可选）
+            documents: 新的文档内容（可选）
+            metadatas: 新的元数据（可选）
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            collection = self.client.get_collection(name=collection_name)
+
+            # 构建更新参数
+            update_kwargs = {"ids": ids}
+
+            if embeddings is not None:
+                update_kwargs["embeddings"] = embeddings
+
+            if documents is not None:
+                update_kwargs["documents"] = documents
+
+            if metadatas is not None:
+                # 清理元数据，确保只有 ChromaDB 支持的基本类型
+                cleaned_metadatas = []
+                for metadata in metadatas:
+                    cleaned = {}
+                    for key, value in metadata.items():
+                        if isinstance(value, (str, int, float, bool)):
+                            cleaned[key] = value
+                        elif value is None:
+                            cleaned[key] = ""
+                        else:
+                            cleaned[key] = str(value)
+                    cleaned_metadatas.append(cleaned)
+                update_kwargs["metadatas"] = cleaned_metadatas
+
+            collection.update(**update_kwargs)
+
+            print(f"✅ 成功更新 {len(ids)} 条数据")
+            return True
+
+        except Exception as e:
+            print(f"❌ 更新数据失败: {e}")
+            return False
+
+    def delete_by_ids(self, collection_name: str, ids: List[str]) -> bool:
+        """根据ID删除数据
+
+        Args:
+            collection_name: 集合名称
+            ids: 要删除的文档ID列表
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            collection = self.client.get_collection(name=collection_name)
+            collection.delete(ids=ids)
+
+            print(f"✅ 成功删除 {len(ids)} 条数据")
+            return True
+
+        except Exception as e:
+            print(f"❌ 删除数据失败: {e}")
+            return False

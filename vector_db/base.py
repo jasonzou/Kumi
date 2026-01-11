@@ -56,3 +56,35 @@ class VectorDBInterface(ABC):
     def get_collection_fields(self, collection_name: str) -> List[str]:
         """获取集合字段"""
         pass
+
+    @abstractmethod
+    def update_data(self, collection_name: str, ids: List[str],
+                    embeddings: Optional[List[List[float]]] = None,
+                    documents: Optional[List[str]] = None,
+                    metadatas: Optional[List[Dict[str, Any]]] = None) -> bool:
+        """更新数据
+
+        Args:
+            collection_name: 集合名称
+            ids: 要更新的文档ID列表
+            embeddings: 新的向量嵌入（可选）
+            documents: 新的文档内容（可选）
+            metadatas: 新的元数据（可选）
+
+        Returns:
+            是否更新成功
+        """
+        pass
+
+    @abstractmethod
+    def delete_by_ids(self, collection_name: str, ids: List[str]) -> bool:
+        """根据ID删除数据
+
+        Args:
+            collection_name: 集合名称
+            ids: 要删除的文档ID列表
+
+        Returns:
+            是否删除成功
+        """
+        pass

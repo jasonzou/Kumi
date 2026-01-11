@@ -13,6 +13,7 @@ from typing import Union
 import traceback
 import numpy as np
 import time
+import threading
 
 
 logger = logging.getLogger(__name__)
@@ -690,6 +691,19 @@ class KnowledgeService:
         else:
             return data
 
+    def _split_into_chunks(self, texts: List[str], num_chunks: int) -> List[List[str]]:
+        """将文本列表均分为多个块，用于并发Worker处理"""
+        if num_chunks <= 1 or len(texts) == 0:
+            return [texts]
+
+        chunk_size = (len(texts) + num_chunks - 1) // num_chunks
+        chunks = []
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i:i + chunk_size]
+            if chunk:  # 只添加非空块
+                chunks.append(chunk)
+        return chunks
+
     async def process_and_vectorize_file_async(
             self,
             task_id: str,
@@ -699,13 +713,14 @@ class KnowledgeService:
             document_template: str,
             collection_name: str,
             batch_size: int,
+            num_workers: int,
             progress_storage: dict,
             embedding_provider: str = None,
             embedding_model: str = None
     ):
-        """异步处理文件向量化（带进度追踪）"""
+        """异步处理文件向量化（带进度追踪，支持并发Worker）"""
         try:
-            logger.info(f"任务 {task_id} 开始,收到参数：batch_size={batch_size}")
+            logger.info(f"任务 {task_id} 开始,收到参数：batch_size={batch_size}, num_workers={num_workers}")
             total_stages = 5
 
             # 阶段1: 读取文件 - 开始
@@ -799,36 +814,86 @@ class KnowledgeService:
 
                 # 更新进度：文本生成完成，开始计算向量
                 self.update_progress(task_id, progress_storage, "生成向量嵌入", 4, total_stages,
-                                     message="正在计算向量嵌入...", sub_progress=0.1)  # 文本生成完成，给予10%的子进度
+                                     message=f"正在使用 {num_workers} 个Worker计算向量嵌入...", sub_progress=0.1)
 
                 # 【重要】记录使用的embedding模型
-                logger.info(f"任务 {task_id} 使用embedding模型: provider={embedding_provider}, model={embedding_model}, batch_size={batch_size}")
+                logger.info(f"任务 {task_id} 使用embedding模型: provider={embedding_provider}, model={embedding_model}, batch_size={batch_size}, num_workers={num_workers}")
 
-                # 定义embedding进度回调函数
-                def embedding_progress_callback(completed_batches: int, total_embedding_batches: int, message: str):
-                    """Embedding进度回调函数"""
-                    # 计算当前阶段内的子进度（0.1 到 1.0，因为文本生成已经占用了0.1）
-                    embedding_progress = 0.1 + (
-                                completed_batches / total_embedding_batches * 0.9) if total_embedding_batches > 0 else 0.1
-
-                    # 更新进度，传入子进度参数
-                    self.update_progress(
-                        task_id, progress_storage, "生成向量嵌入", 4, total_stages,
-                        message=f"向量化进度: {completed_batches}/{total_embedding_batches} 批次 - {message}",
-                        sub_progress=embedding_progress
-                    )
-
-                # 向量化（使用带进度的方法）
+                # 向量化（支持并发Worker）
+                embedding_start_time = time.time()
                 loop = asyncio.get_event_loop()
-                vectors = await loop.run_in_executor(
-                    None,
-                    self.embedding_service.encode_texts_with_progress,
-                    embedding_texts,
-                    embedding_progress_callback,
-                    embedding_provider,
-                    embedding_model,
-                    batch_size
-                )
+
+                if num_workers <= 1:
+                    # 单Worker模式（原有逻辑）
+                    def embedding_progress_callback(completed_batches: int, total_embedding_batches: int, message: str):
+                        """Embedding进度回调函数"""
+                        embedding_progress = 0.1 + (
+                                    completed_batches / total_embedding_batches * 0.9) if total_embedding_batches > 0 else 0.1
+                        self.update_progress(
+                            task_id, progress_storage, "生成向量嵌入", 4, total_stages,
+                            message=f"向量化进度: {completed_batches}/{total_embedding_batches} 批次 - {message}",
+                            sub_progress=embedding_progress
+                        )
+
+                    vectors = await loop.run_in_executor(
+                        None,
+                        self.embedding_service.encode_texts_with_progress,
+                        embedding_texts,
+                        embedding_progress_callback,
+                        embedding_provider,
+                        embedding_model,
+                        batch_size
+                    )
+                else:
+                    # 多Worker并发模式
+                    text_chunks = self._split_into_chunks(embedding_texts, num_workers)
+                    actual_workers = len(text_chunks)
+
+                    # 进度聚合器
+                    worker_progress = {i: {"completed": 0, "total": 0} for i in range(actual_workers)}
+                    progress_lock = threading.Lock()
+
+                    def make_worker_callback(worker_id):
+                        def callback(completed, total, message):
+                            with progress_lock:
+                                worker_progress[worker_id] = {"completed": completed, "total": total}
+                                # 计算总进度
+                                total_completed = sum(wp["completed"] for wp in worker_progress.values())
+                                total_batches_all = sum(wp["total"] for wp in worker_progress.values())
+                                if total_batches_all > 0:
+                                    sub_progress = 0.1 + (total_completed / total_batches_all * 0.9)
+                                    self.update_progress(
+                                        task_id, progress_storage, "生成向量嵌入", 4, total_stages,
+                                        message=f"Worker进度: {total_completed}/{total_batches_all} 批次 ({actual_workers} Workers)",
+                                        sub_progress=sub_progress
+                                    )
+                        return callback
+
+                    async def encode_chunk(worker_id, texts):
+                        """单个Worker的编码任务"""
+                        callback = make_worker_callback(worker_id)
+                        result = await loop.run_in_executor(
+                            None,
+                            self.embedding_service.encode_texts_with_progress_concurrent,
+                            texts,
+                            callback,
+                            embedding_provider,
+                            embedding_model,
+                            batch_size
+                        )
+                        return (worker_id, result)
+
+                    # 并发执行所有Worker
+                    tasks = [encode_chunk(i, chunk) for i, chunk in enumerate(text_chunks)]
+                    results = await asyncio.gather(*tasks)
+
+                    # 按原始顺序合并结果
+                    vectors = []
+                    for worker_id, result in sorted(results, key=lambda x: x[0]):
+                        vectors.extend(result)
+
+                embedding_end_time = time.time()
+                embedding_api_duration = embedding_end_time - embedding_start_time
 
                 # 阶段4: 生成向量嵌入 - 完成
                 self.update_progress(task_id, progress_storage, "生成向量嵌入", 4, total_stages,
@@ -918,7 +983,8 @@ class KnowledgeService:
                         "embedding_model": embedding_model or "default",
                         "batch_size": batch_size,
                         "total_batches": total_batches,
-                        "collection_stats": stats
+                        "collection_stats": stats,
+                        "embedding_api_duration": round(embedding_api_duration, 2)  # Embedding API 总耗时（秒）
                     }
                 })
 
@@ -939,3 +1005,220 @@ class KnowledgeService:
                 "error": f"处理失败: {str(e)}",
                 "message": f"处理过程中发生错误: {str(e)}"
             })
+
+    async def get_collection_documents(
+        self,
+        collection_name: str,
+        page: int = 1,
+        page_size: int = 20
+    ) -> Dict[str, Any]:
+        """获取集合中的文档列表（分页）
+
+        Args:
+            collection_name: 集合名称
+            page: 页码（从1开始）
+            page_size: 每页数量
+
+        Returns:
+            包含 documents、total、pages 的字典
+        """
+        try:
+            loop = asyncio.get_event_loop()
+
+            # 获取总数
+            stats = await loop.run_in_executor(
+                None, self.vector_client.get_collection_stats, collection_name
+            )
+            total = stats.get("row_count", 0)
+
+            # 计算分页
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+            offset = (page - 1) * page_size
+
+            # 获取数据 - ChromaDB 不支持 offset，需要获取更多数据然后截取
+            limit = page * page_size
+            all_data = await loop.run_in_executor(
+                None, self.vector_client.get_all_data, collection_name, limit
+            )
+
+            # 截取当前页数据
+            documents = all_data[offset:offset + page_size]
+
+            # 清理数据，移除 embedding 以减少传输量
+            cleaned_documents = []
+            for doc in documents:
+                cleaned_doc = {k: v for k, v in doc.items()
+                             if k not in ['embedding', 'dense_vector']}
+                cleaned_documents.append(cleaned_doc)
+
+            return {
+                "documents": cleaned_documents,
+                "total": total,
+                "pages": total_pages
+            }
+
+        except Exception as e:
+            logger.error(f"获取文档列表失败: {e}")
+            raise
+
+    async def get_document_by_id(
+        self,
+        collection_name: str,
+        document_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """根据ID获取单个文档的完整信息
+
+        Args:
+            collection_name: 集合名称
+            document_id: 文档ID
+
+        Returns:
+            文档数据字典，不存在则返回 None
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None, self.vector_client.query_by_ids, collection_name, [document_id]
+            )
+
+            if results:
+                doc = results[0]
+                # 将 metadata 字段展开到顶层（保持与 get_all_data 一致的格式）
+                if 'metadata' in doc and isinstance(doc['metadata'], dict):
+                    for key, value in doc['metadata'].items():
+                        if key not in doc:
+                            doc[key] = value
+                    del doc['metadata']
+
+                # 清理数据以确保 JSON 兼容性（移除 embedding 向量，转换 NumPy 类型）
+                # 移除 embedding 和 dense_vector 字段（前端不需要）
+                doc.pop('embedding', None)
+                doc.pop('dense_vector', None)
+
+                # 清理其他字段中的 NumPy 类型
+                doc = self.sanitize_for_json(doc)
+
+                return doc
+            return None
+
+        except Exception as e:
+            logger.error(f"获取文档失败: {e}")
+            return None
+
+    async def delete_document_from_collection(
+        self,
+        collection_name: str,
+        document_id: str
+    ) -> bool:
+        """从集合中删除单个文档
+
+        Args:
+            collection_name: 集合名称
+            document_id: 文档ID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                None, self.vector_client.delete_by_ids, collection_name, [document_id]
+            )
+
+            logger.info(f"文档 {document_id} 从 {collection_name} 删除{'成功' if success else '失败'}")
+            return success
+
+        except Exception as e:
+            logger.error(f"删除文档失败: {e}")
+            return False
+
+    async def update_document_in_collection(
+        self,
+        collection_name: str,
+        document_id: str,
+        document_content: str,
+        metadata: Dict[str, Any],
+        re_vectorize: bool = False,
+        embedding_template: Optional[str] = None,
+        embedding_provider: Optional[str] = None,
+        embedding_model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """更新集合中的文档
+
+        Args:
+            collection_name: 集合名称
+            document_id: 文档ID
+            document_content: 新的文档内容
+            metadata: 新的元数据
+            re_vectorize: 是否重新向量化
+            embedding_template: 重新向量化时使用的模板（可选）
+            embedding_provider: embedding供应商（可选）
+            embedding_model: embedding模型（可选）
+
+        Returns:
+            {"success": bool, "message": str}
+        """
+        try:
+            loop = asyncio.get_event_loop()
+
+            # 准备更新数据
+            new_embedding = None
+
+            if re_vectorize:
+                # 生成用于向量化的文本
+                if embedding_template:
+                    # 使用模板生成文本，结合 metadata
+                    embedding_text = self._parse_embedding_template(embedding_template, metadata)
+                else:
+                    # 使用 document 内容作为向量化文本
+                    embedding_text = document_content
+
+                logger.info(f"重新向量化文档 {document_id}，使用文本: {embedding_text[:100]}...")
+
+                # 调用 embedding 服务
+                embeddings = await loop.run_in_executor(
+                    None,
+                    self.embedding_service.encode_texts,
+                    [embedding_text],
+                    embedding_provider,
+                    embedding_model,
+                    1  # batch_size
+                )
+                new_embedding = embeddings[0]
+
+            # 清理 metadata，移除系统字段
+            clean_metadata = {k: v for k, v in metadata.items()
+                            if k not in ['id', 'embedding', 'dense_vector', 'document']}
+
+            # 执行更新
+            success = await loop.run_in_executor(
+                None,
+                self.vector_client.update_data,
+                collection_name,
+                [document_id],
+                [new_embedding] if new_embedding else None,
+                [document_content],
+                [clean_metadata]
+            )
+
+            if success:
+                msg = "文档更新成功"
+                if re_vectorize:
+                    msg += "（已重新向量化）"
+                return {
+                    "success": True,
+                    "message": msg
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "文档更新失败"
+                }
+
+        except Exception as e:
+            logger.error(f"更新文档失败: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"更新失败: {str(e)}"
+            }

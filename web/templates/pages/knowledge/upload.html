@@ -707,6 +707,15 @@
             </small>
         </div>
 
+        <div class="form-group">
+            <label class="form-label" for="numWorkers">并发 Worker 数:</label>
+            <input type="number" id="numWorkers" class="form-input"
+                   value="1" min="1" max="16" required>
+            <small style="color: #6b7280;">
+                同时发起的 embedding 请求数，增加可提升处理速度（默认 1）
+            </small>
+        </div>
+
         <div style="text-align: right; margin-top: 20px;">
             <button class="btn btn-secondary" id="backToPreviewBtn">返回预览</button>
             <button class="btn btn-primary" id="startProcessBtn" style="margin-left: 10px;">开始处理</button>
@@ -1343,6 +1352,7 @@
         const docTemplate = documentTemplate.value.trim();
         const collection = collectionName.value.trim();
         const batch = parseInt(batchSize.value);
+        const workers = parseInt(document.getElementById('numWorkers').value);
         const selectedModel = embeddingModel.value;
 
         // 验证参数
@@ -1377,6 +1387,11 @@
             return;
         }
 
+        if (workers < 1 || workers > 16) {
+            showAlert('error', '并发Worker数必须在1-16之间');
+            return;
+        }
+
         try {
             showSection(4);
             showProcessingStatus();
@@ -1387,6 +1402,7 @@
             formData.append('document_template', docTemplate);
             formData.append('collection_name', collection);
             formData.append('batch_size', batch);
+            formData.append('num_workers', workers);
             formData.append('embedding_model', selectedModel);
 
             // 创建任务
@@ -1545,7 +1561,11 @@
                 </div>
                 <div class="result-item">
                     <span><strong>使用模板:</strong></span>
-                    <span style="font-family: monospace; background: #f3f4f6; padding: 2px 4px; border-radius: 2px;">${data.template_used}</span>
+                    <span style="font-family: monospace; background: #f3f4f6; padding: 2px 4px; border-radius: 2px;">${data.embedding_template_used}</span>
+                </div>
+                <div class="result-item">
+                    <span><strong>Embedding API耗时:</strong></span>
+                    <span>${data.embedding_api_duration} 秒</span>
                 </div>
             </div>
         `;

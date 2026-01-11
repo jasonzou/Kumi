@@ -2019,3 +2019,4 @@ url("./fonts/bootstrap-icons.woff?2ab2cbbe07fcebb53bdaa7313bb290f2") format("wof
 .bi-crosshair2::before { content: "\f794"; }
 .bi-crosshair::before { content: "\f769"; }
 .bi-shadows::before { content: "\F8FC"; }
+.bi-copy::before { content: "\F759"; }

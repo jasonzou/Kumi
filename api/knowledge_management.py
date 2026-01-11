@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from services.knowledge_service import KnowledgeService
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import BackgroundTasks
 import uuid
+from io import BytesIO
+from openpyxl import Workbook
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +276,146 @@ async def get_collection_documents(collection_name: str, request: Request):
         }, status_code=500)
 
 
+@router.get("/api/knowledge/collections/{collection_name}/export")
+async def export_collection_to_excel(collection_name: str, request: Request):
+    """导出知识库为 xlsx 文件"""
+    try:
+        user = get_user_from_request(request)
+        logger.info(f"用户 {user.get('username', 'unknown')} 请求导出知识库 {collection_name}")
+
+        # 获取所有文档（不分页）
+        all_data = knowledge_service.vector_client.get_all_data(collection_name, limit=None)
+
+        # 排除字段
+        exclude_fields = {'id', 'upload_time', 'embedding', 'dense_vector'}
+
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "知识库数据"
+
+        if all_data:
+            # 获取字段（排除系统字段）
+            fields = [k for k in all_data[0].keys() if k not in exclude_fields]
+
+            # 写表头
+            ws.append(fields)
+
+            # 写数据
+            for doc in all_data:
+                row = [str(doc.get(f, '')) if doc.get(f) is not None else '' for f in fields]
+                ws.append(row)
+
+        # 保存到内存
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        # 对文件名进行编码处理
+        safe_filename = collection_name.encode('utf-8').decode('utf-8')
+
+        logger.info(f"用户 {user.get('username', 'unknown')} 成功导出知识库 {collection_name}，共 {len(all_data) if all_data else 0} 条记录")
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_filename}.xlsx"}
+        )
+    except Exception as e:
+        logger.error(f"导出知识库失败: {e}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"导出失败: {str(e)}"
+        }, status_code=500)
+
+
+@router.get("/api/knowledge/collections/{collection_name}/documents/{document_id}")
+async def get_document_detail(collection_name: str, document_id: str, request: Request):
+    """获取单个文档的详细信息"""
+    try:
+        user = get_user_from_request(request)
+        logger.info(f"用户 {user.get('username', 'unknown')} 请求获取文档 {document_id}")
+
+        document = await knowledge_service.get_document_by_id(collection_name, document_id)
+
+        if document:
+            return JSONResponse({
+                "status": "success",
+                "data": document
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "message": "文档不存在"
+            }, status_code=404)
+
+    except Exception as e:
+        logger.error(f"获取文档详情失败: {e}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"获取文档失败: {str(e)}"
+        }, status_code=500)
+
+
+@router.put("/api/knowledge/collections/{collection_name}/documents/{document_id}")
+async def update_document(collection_name: str, document_id: str, request: Request):
+    """更新文档内容和元数据"""
+    try:
+        user = get_user_from_request(request)
+        logger.info(f"用户 {user.get('username', 'unknown')} 请求更新文档 {document_id}")
+
+        # 获取请求体
+        data = await request.json()
+
+        document_content = data.get("document", "")
+        metadata = data.get("metadata", {})
+        re_vectorize = data.get("re_vectorize", False)
+        embedding_template = data.get("embedding_template")
+        embedding_model = data.get("embedding_model")  # "provider,model" 格式
+
+        # 解析 embedding 模型
+        embedding_provider = None
+        embedding_model_name = None
+        if embedding_model and re_vectorize:
+            try:
+                embedding_provider, embedding_model_name = \
+                    knowledge_service.embedding_service.parse_model_identifier(embedding_model)
+            except Exception as e:
+                return JSONResponse({
+                    "status": "error",
+                    "message": f"无效的embedding模型: {str(e)}"
+                }, status_code=400)
+
+        result = await knowledge_service.update_document_in_collection(
+            collection_name=collection_name,
+            document_id=document_id,
+            document_content=document_content,
+            metadata=metadata,
+            re_vectorize=re_vectorize,
+            embedding_template=embedding_template,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model_name
+        )
+
+        if result["success"]:
+            return JSONResponse({
+                "status": "success",
+                "message": result["message"]
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "message": result["message"]
+            }, status_code=500)
+
+    except Exception as e:
+        logger.error(f"更新文档失败: {e}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"更新失败: {str(e)}"
+        }, status_code=500)
+
+
 @router.delete("/api/knowledge/collections/{collection_name}/documents/{document_id}")
 async def delete_document_from_collection(collection_name: str, document_id: str, request: Request):
     """从知识库集合中删除文档"""
@@ -368,6 +510,7 @@ async def process_upload_file(
         document_template: str = Form(...),
         collection_name: str = Form(...),
         batch_size: int = Form(5),
+        num_workers: int = Form(1),
         embedding_model: str = Form(None)  # "provider,model" 格式
 ):
     """处理文件上传和向量化（异步处理）"""
@@ -418,6 +561,12 @@ async def process_upload_file(
                 "message": "批处理大小必须在1-1000之间"
             }, status_code=400)
 
+        if num_workers < 1 or num_workers > 16:
+            return JSONResponse({
+                "status": "error",
+                "message": "并发Worker数必须在1-16之间"
+            }, status_code=400)
+
         # 解析embedding模型
         embedding_provider = None
         embedding_model_name = None
@@ -444,6 +593,7 @@ async def process_upload_file(
             document_template,
             collection_name,
             batch_size,
+            num_workers,
             progress_storage,
             embedding_provider,
             embedding_model_name
