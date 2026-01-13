@@ -1,0 +1,171 @@
+# Default Configuration for MD2QA Enhanced Pipeline
+# This file contains default settings that can be overridden by user config,
+# environment variables, or command-line arguments
+
+pipeline:
+  # Which steps to run (1=md2csv, 2=chunk2qa, 3=merge)
+  steps: [1, 2, 3]
+  # Enable resume capability
+  resume: true
+  # Preview mode (dry-run, no changes)
+  preview: false
+  # Version for state file compatibility
+  version: "1.0"
+
+# Input configuration
+input:
+  # Base input folder
+  folder: "./input"
+  # Glob pattern for files to process
+  pattern: "**/*"
+  # Exclude patterns (comma-separated)
+  exclude: ["*.tmp", "*.log", ".DS_Store"]
+  # File extensions to process
+  extensions: [".md", ".txt"]
+  # Recursively search subdirectories
+  recursive: true
+
+# Step 1: Markdown to CSV configuration
+step1:
+  enabled: true
+  # Text chunking strategy: recursive, semantic, markdown, sentence, large_context, hierarchical, overlap, content_aware
+  chunking_strategy: "large_context"
+  # Size of text chunks (characters) - for 40k context, use larger sizes (1000-20000)
+  chunk_size: 5000
+  # Overlap between chunks (characters) - helps maintain context across chunk boundaries
+  chunk_overlap: 200
+  # Minimum chunk size (smaller chunks will be merged)
+  min_chunk_size: 100
+  # Output format: tsv, csv, json, parquet
+  output_format: "tsv"
+  # Preserve formatting in Text column
+  preserve_formatting: true
+  # Extract and replace images with placeholders
+  handle_images: true
+
+# Step 2: CSV to QA configuration
+step2:
+  enabled: true
+  # Number of generation rounds per text chunk
+  rounds: 3
+  # Maximum concurrent API calls
+  max_workers: 5
+  # LLM model configuration
+  model: "qwen/qwen3-vl-235b-a22b-instruct"
+  temperature: 0.7
+  max_tokens: null
+  # API settings
+  timeout: 300
+  # Retry settings for API calls
+  api_retries: 3
+  api_retry_delay: 5
+  api_retry_backoff: 2
+
+# Step 3: Merge configuration
+step3:
+  enabled: true
+  # Merge strategy: concat (keep all columns), union (only common columns)
+  merge_strategy: "concat"
+  # Add source file tracking
+  track_sources: true
+  # Column name for source file
+  source_column: "source_file"
+
+# Output configuration
+output:
+  # Base output folder
+  folder: "./output"
+  # Create subfolders for each step
+  create_subfolders: true
+  # Backup existing output files
+  backup_existing: false
+  # File encoding
+  encoding: "utf-8-sig"
+  # Compression for output files
+  compression: null  # gzip, bzip2, zip, or null
+
+# Validation configuration
+validation:
+  # Enable output validation
+  check_outputs: true
+  # Retry failed operations
+  retry_failed: true
+  # Maximum retry attempts
+  max_retries: 3
+  # Retry delay in seconds
+  retry_delay: 5
+  # Exponential backoff multiplier
+  retry_backoff: 2
+  # Validation strictness: strict, normal, relaxed
+  strictness: "normal"
+  # Skip files with validation errors
+  skip_invalid: false
+
+# Resume and state management
+state:
+  # State file location
+  file: "./state/pipeline_state.json"
+  # Backup state file before updates
+  backup: true
+  # Save state after each file (more safe, slower)
+  incremental_save: true
+  # State file format: json, yaml
+  format: "json"
+
+# Logging configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # Log file location
+  file: "logs/pipeline.log"
+  # Also log to console
+  console: true
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # Maximum log file size (MB)
+  max_size: 100
+  # Number of backup log files
+  backup_count: 5
+  # Separate error log file
+  error_file: "logs/errors.log"
+
+# Metrics and reporting
+metrics:
+  # Enable metrics collection
+  enabled: true
+  # Metrics output file
+  output: "reports/metrics.json"
+  # Human-readable summary report
+  summary_report: "reports/summary.txt"
+  # HTML report with charts (optional)
+  html_report: null
+  # Collect performance metrics
+  performance: true
+  # Collect quality metrics
+  quality: true
+  # Collect resource usage metrics
+  resources: true
+
+# Progress tracking
+progress:
+  # Show progress bars
+  enabled: true
+  # Progress bar position
+  position: 0
+  # Progress bar unit
+  unit: "file"
+  # ETA calculation
+  show_eta: true
+  # Show percentage
+  show_percentage: true
+
+# Resource limits
+resources:
+  # Maximum memory usage (MB)
+  max_memory: 2048
+  # Maximum CPU cores to use
+  max_cores: null
+  # Temporary folder
+  temp_dir: "./tmp"
+  # Clean temp files after completion
+  cleanup_temp: true

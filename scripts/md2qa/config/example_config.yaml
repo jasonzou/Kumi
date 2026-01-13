@@ -1,0 +1,210 @@
+# Example Configuration for MD2QA Enhanced Pipeline
+# This file demonstrates how to customize the pipeline for different use cases
+
+# ==============================================================================
+# BASIC CONFIGURATION
+# ==============================================================================
+
+# Dataset name (used for folders and output files)
+pipeline:
+  data_name: "my_dataset"
+  # Which steps to run: [1] = md2csv, [2] = chunk2qa, [3] = merge
+  steps: [1, 2, 3]
+  # Enable resume capability (recommended: true)
+  resume: true
+  # Preview mode (dry-run, no changes): true/false
+  preview: false
+
+# Input/output folders
+input:
+  folder: "./input"
+  # Pattern for files to process
+  pattern: "**/*"
+  # Exclude patterns
+  exclude: ["*.tmp", "*.log", ".DS_Store"]
+  # File extensions to process
+  extensions: [".md", ".txt"]
+
+output:
+  folder: "./output"
+  create_subfolders: true
+  backup_existing: false
+
+# ==============================================================================
+# STEP 1: MARKDOWN TO CSV
+# ==============================================================================
+
+step1:
+  enabled: true
+  # Text chunking strategy: Choose based on your document type and context window
+  # Available strategies:
+  # - recursive: Standard recursive character splitting (good for general use)
+  # - semantic: Semantic splitting by headers and logical breaks
+  # - markdown: Markdown-aware splitting that preserves document structure
+  # - sentence: Sentence-based splitting for natural language
+  # - large_context: Optimized for large context windows (40k tokens) - RECOMMENDED
+  # - hierarchical: Preserves document hierarchy with multi-level headers
+  # - overlap: Overlap-based splitting to maintain context across chunks
+  # - content_aware: Content-type aware (handles text, code, lists separately)
+  chunking_strategy: "large_context"
+
+  # Size of text chunks (characters)
+  # For 40k context windows:
+  # - small documents: 1000-3000 chars
+  # - medium documents: 3000-10000 chars
+  # - large documents: 10000-20000 chars
+  chunk_size: 5000
+
+  # Overlap between chunks (characters)
+  # Helps maintain context across chunk boundaries
+  # Recommended: 10-20% of chunk_size
+  chunk_overlap: 200
+
+  # Minimum chunk size (smaller chunks will be merged)
+  min_chunk_size: 100
+
+  # Output format: tsv, csv, json, parquet
+  output_format: "tsv"
+
+  # Preserve formatting in Text column
+  preserve_formatting: true
+
+  # Handle images with placeholders
+  handle_images: true
+
+# ==============================================================================
+# STEP 2: CSV TO QA GENERATION
+# ==============================================================================
+
+step2:
+  enabled: true
+  # Number of generation rounds per text chunk (higher = better quality, slower)
+  rounds: 3
+  # Maximum concurrent API calls (higher = faster, but may hit rate limits)
+  max_workers: 5
+  # LLM model configuration
+  model: "qwen/qwen3-vl-235b-a22b-instruct"
+  temperature: 0.7
+  max_tokens: null
+  # API timeout (seconds)
+  timeout: 300
+  # Retry settings
+  api_retries: 3
+  api_retry_delay: 5
+  api_retry_backoff: 2
+
+# ==============================================================================
+# STEP 3: MERGE
+# ==============================================================================
+
+step3:
+  enabled: true
+  # Merge strategy: concat (keep all columns), union (only common columns)
+  merge_strategy: "concat"
+  # Track source file for each row
+  track_sources: true
+  source_column: "source_file"
+
+# ==============================================================================
+# VALIDATION AND ERROR HANDLING
+# ==============================================================================
+
+validation:
+  # Enable output validation
+  check_outputs: true
+  # Retry failed operations
+  retry_failed: true
+  # Maximum retry attempts
+  max_retries: 3
+  # Retry delay (seconds)
+  retry_delay: 5
+  # Exponential backoff multiplier
+  retry_backoff: 2
+  # Validation strictness: strict, normal, relaxed
+  strictness: "normal"
+  # Skip files with validation errors
+  skip_invalid: false
+
+# ==============================================================================
+# STATE MANAGEMENT
+# ==============================================================================
+
+state:
+  # State file location
+  file: "./state/pipeline_state.json"
+  # Backup state file before updates
+  backup: true
+  # Save state after each file (more safe, slower)
+  incremental_save: true
+  # State file format: json, yaml
+  format: "json"
+
+# ==============================================================================
+# LOGGING
+# ==============================================================================
+
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # Log file location
+  file: "logs/pipeline.log"
+  # Also log to console
+  console: true
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # Maximum log file size (MB)
+  max_size: 100
+  # Number of backup log files
+  backup_count: 5
+  # Separate error log file
+  error_file: "logs/errors.log"
+
+# ==============================================================================
+# METRICS AND REPORTING
+# ==============================================================================
+
+metrics:
+  # Enable metrics collection
+  enabled: true
+  # Metrics output file (JSON)
+  output: "reports/metrics.json"
+  # Human-readable summary report
+  summary_report: "reports/summary.txt"
+  # HTML report with charts (optional)
+  html_report: null
+  # Collect performance metrics
+  performance: true
+  # Collect quality metrics
+  quality: true
+  # Collect resource usage metrics
+  resources: true
+
+# ==============================================================================
+# PROGRESS TRACKING
+# ==============================================================================
+
+progress:
+  # Show progress bars
+  enabled: true
+  # Progress bar position (for nested bars)
+  position: 0
+  # Progress bar unit
+  unit: "file"
+  # Show ETA estimate
+  show_eta: true
+  # Show percentage
+  show_percentage: true
+
+# ==============================================================================
+# RESOURCE LIMITS
+# ==============================================================================
+
+resources:
+  # Maximum memory usage (MB)
+  max_memory: 2048
+  # Maximum CPU cores to use (null = auto-detect)
+  max_cores: null
+  # Temporary folder
+  temp_dir: "./tmp"
+  # Clean temp files after completion
+  cleanup_temp: true

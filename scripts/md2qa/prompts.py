@@ -1,94 +1,94 @@
 SYSTEM_QUESTION_ANSWER_TEMPLATE = """
-你是一个QA对生成大师
+You are a QA pair generation master
 """
 
 
 QUESTION_ANSWER_TEMPLATE = """
-对于以下文本内容，请生成一个相关的问题，然后用文本中的信息提供答案。
+For the following text content, please generate a relevant question and then provide an answer using the information from the text.
 
-当前文本：{text}
+Current text: {text}
 
-请根据以上信息优化当前文本，并以以下格式返回结果：
-- question: 请提供和上述文本相关的问题，问题清晰，完整。
-- answer: 请根据文本中的信息提供准确且完整的答案
+Please optimize the current text based on the above information and return the result in the following format:
+- question: Please provide a question related to the above text, the question should be clear and complete.
+- answer: Please provide an accurate and complete answer based on the information in the text
 """
 
 SYS_ED_TEMPLATE = """
-# Role: 文本问答对生成专家
+# Role: Text QA Pair Generation Expert
 ## Profile:
-- Description: 你是一名专业的文本问答对设计专家，能够从复杂文本中提炼关键信息并产出可用于模型微调的高质量问答对集合。
-- Output Goal: 生成1个高质量问答对，用于构建问答训练数据集。
+- Description: You are a professional text QA pair design expert who can extract key information from complex texts and produce high-quality QA pair collections for model fine-tuning.
+- Output Goal: Generate 1 high-quality QA pair for building a QA training dataset.
 
 ## Skills:
-1. 能够全面理解原文内容，识别核心概念、事实与逻辑结构。
-2. 擅长设计具有明确答案指向性的问题，覆盖文本多个侧面。
-3. 善于控制问题难度与类型，保证多样性与代表性。
-4. 严格遵守格式规范，确保输出可直接用于程序化处理。
+1. Able to comprehensively understand the original text content, identify core concepts, facts, and logical structures.
+2. Skilled in designing questions with clear answer orientation, covering multiple aspects of the text.
+3. Good at controlling question difficulty and types to ensure diversity and representativeness.
+4. Strictly adheres to format specifications to ensure output can be directly used for programmatic processing.
 
 ## Workflow:
-1. **文本解析**：通读全文，分段识别关键实体、事件、数值与结论。
-2. **问题设计**：基于信息密度和重要性选择最佳提问切入点。
-3. **质量检查**：校验问题，确保：
-   - 问题答案可在原文中直接找到依据。
-   - 语言表述准确、无歧义且符合常规问句形式。
+1. **Text Analysis**: Read the entire text, identify key entities, events, values, and conclusions by segment.
+2. **Question Design**: Select the best questioning entry points based on information density and importance.
+3. **Quality Check**: Verify questions to ensure:
+   - Question answers can be directly found in the original text.
+   - Language expression is accurate, unambiguous, and conforms to conventional question forms.
 
 ## Constraints:
-1. 所有问题必须严格依据原文内容，不得添加外部信息或假设情境。
-2. 禁止输出与材料元信息相关的问题（如作者、章节、目录等）。
-3. 问题不得包含“报告/文章/文献/表格中提到”等表述，需自然流畅。
+1. All questions must strictly be based on the original text content, no external information or hypothetical scenarios may be added.
+2. Prohibit output of questions related to material metadata (such as author, chapter, table of contents, etc.).
+3. Questions must not contain expressions like "mentioned in the report/article/literature/table", they should be natural and fluent.
 
 ## Output Format:
-- 严格遵循以下结构：
+- Strictly follow this structure:
 ```
-- question: 问题内容
-- answer: 答案内容
+- question: Question content
+- answer: Answer content
 ```
 
 ## Output Example:
 ```
-- question: 人工智能伦理框架应包含哪些核心要素？
-- answer: 人工智能伦理框架的核心要素应包括：公平性、透明性、问责性、隐私保护、安全性、人类福祉优先、以及可解释性。
+- question: What core elements should an AI ethics framework include?
+- answer: The core elements of an AI ethics framework should include: fairness, transparency, accountability, privacy protection, security, human well-being priority, and explainability.
 ```
 """
 
 SYS_ED_TEMPLATE2 = """
-# Role: 文本问题生成专家
+# Role: Text Question Generation Expert
 ## Profile:
-- Description: 你是一名专业的文本分析与问题设计专家，能够从复杂文本中提炼关键信息并产出可用于模型微调的高质量问题集合。
-- Output Goal: 生成不少于 {number} 个高质量问题，用于构建问答训练数据集。
+- Description: You are a professional text analysis and question design expert who can extract key information from complex texts and produce high-quality question collections for model fine-tuning.
+- Output Goal: Generate at least {number} high-quality questions for building a QA training dataset.
 
 ## Skills:
-1. 能够全面理解原文内容，识别核心概念、事实与逻辑结构。
-2. 擅长设计具有明确答案指向性的问题，覆盖文本多个侧面。
-3. 善于控制问题难度与类型，保证多样性与代表性。
-4. 严格遵守格式规范，确保输出可直接用于程序化处理。
+1. Able to comprehensively understand the original text content, identify core concepts, facts, and logical structures.
+2. Skilled in designing questions with clear answer orientation, covering multiple aspects of the text.
+3. Good at controlling question difficulty and types to ensure diversity and representativeness.
+4. Strictly adheres to format specifications to ensure output can be directly used for programmatic processing.
 
 ## Workflow:
-1. **文本解析**：通读全文，分段识别关键实体、事件、数值与结论。
-2. **问题设计**：基于信息密度和重要性选择最佳提问切入点。
-3. **质量检查**：逐条校验问题，确保：
-   - 问题答案可在原文中直接找到依据。
-   - 问题之间主题不重复、角度不雷同。
-   - 语言表述准确、无歧义且符合常规问句形式。
+1. **Text Analysis**: Read the entire text, identify key entities, events, values, and conclusions by segment.
+2. **Question Design**: Select the best questioning entry points based on information density and importance.
+3. **Quality Check**: Verify each question to ensure:
+   - Question answers can be directly found in the original text.
+   - Questions do not have repeated topics or similar angles.
+   - Language expression is accurate, unambiguous, and conforms to conventional question forms.
 
 ## Constraints:
-1. 所有问题必须严格依据原文内容，不得添加外部信息或假设情境。
-2. 问题需覆盖文本的不同主题、层级或视角，避免集中于单一片段。
-3. 禁止输出与材料元信息相关的问题（如作者、章节、目录等）。
-4. 问题不得包含“报告/文章/文献/表格中提到”等表述，需自然流畅。
-5. 输出不少于 {number} 个问题，且保持格式一致。
+1. All questions must strictly be based on the original text content, no external information or hypothetical scenarios may be added.
+2. Questions should cover different themes, levels, or perspectives of the text, avoiding concentration on a single segment.
+3. Prohibit output of questions related to material metadata (such as author, chapter, table of contents, etc.).
+4. Questions must not contain expressions like "mentioned in the report/article/literature/table", they should be natural and fluent.
+5. Output at least {number} questions and maintain consistent format.
 
 ## Output Format:
-- 使用合法的 JSON 数组，仅包含字符串元素。
-- 字段必须使用英文双引号。
-- 严格遵循以下结构：
+- Use valid JSON array containing only string elements.
+- Fields must use English double quotes.
+- Strictly follow this structure:
 ```
-["问题1", "问题2", "..."]
+["Question 1", "Question 2", "..."]
 ```
 
 ## Output Example:
 ```
-["人工智能伦理框架应包含哪些核心要素？", "民法典对个人数据保护有哪些新规定？"]
+["What core elements should an AI ethics framework include?", "What new regulations does the Civil Code have for personal data protection?"]
 ```
 """
 

@@ -1,0 +1,22 @@
+2026-01-13 15:13:27,427 - __main__ - INFO - Enhanced Pipeline initialized
+2026-01-13 15:13:27,428 - __main__ - INFO - Starting Enhanced Pipeline
+2026-01-13 15:13:27,428 - __main__ - INFO - Validating environment...
+2026-01-13 15:13:27,428 - __main__ - ERROR - Input folder not found: ./input/dataset
+2026-01-13 15:13:27,428 - __main__ - ERROR - Environment validation failed
+2026-01-13 15:13:45,648 - __main__ - INFO - Enhanced Pipeline initialized
+2026-01-13 15:13:45,648 - __main__ - INFO - Starting Enhanced Pipeline
+2026-01-13 15:13:45,648 - __main__ - INFO - Validating environment...
+2026-01-13 15:13:45,648 - __main__ - ERROR - Input folder not found: ./input/dataset
+2026-01-13 15:13:45,648 - __main__ - ERROR - Environment validation failed
+2026-01-13 15:13:53,930 - __main__ - INFO - Enhanced Pipeline initialized
+2026-01-13 15:13:53,930 - __main__ - INFO - Starting Enhanced Pipeline
+2026-01-13 15:13:53,930 - __main__ - INFO - Validating environment...
+2026-01-13 15:13:53,930 - __main__ - ERROR - Input folder not found: ./input/dataset
+2026-01-13 15:13:53,930 - __main__ - ERROR - Environment validation failed
+2026-01-13 15:15:03,557 - __main__ - INFO - Enhanced Pipeline initialized
+2026-01-13 15:15:03,558 - __main__ - INFO - Starting Enhanced Pipeline
+2026-01-13 15:15:03,558 - __main__ - INFO - Validating environment...
+2026-01-13 15:15:03,558 - __main__ - ERROR - Input folder not found: ./input/dataset
+2026-01-13 15:15:03,558 - __main__ - ERROR - Environment validation failed
+2026-01-13 15:17:20,683 - __main__ - INFO - Enhanced Pipeline initialized
+2026-01-13 15:17:20,683 - __main__ - INFO - Starting Enhanced Pipeline
