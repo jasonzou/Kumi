@@ -3,6 +3,7 @@ import traceback
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from loguru import logger
 
 from vector_db.factory import VectorDBFactory
 from vector_db.embedding_client import OpenAIEmbeddingAPI
@@ -25,8 +26,8 @@ class SimilarityCalculator:
         # 初始化embedding配置
         self.embedding_config = EmbeddingConfig()
 
-        print(f"✅ 相似度计算引擎初始化完成")
-        print(f"   数据库类型: {settings.vector_db_type}")
+        logger.info("Similarity calculator initialized")
+        logger.info(f"Database type: {settings.vector_db_type}")
 
     def test_connection(self) -> Dict[str, Any]:
         """测试连接状态"""
@@ -54,13 +55,13 @@ class SimilarityCalculator:
             "vector_db": {
                 "type": settings.vector_db_type,
                 "status": db_status,
-                "collections_count": collections_count
+                "collections_count": collections_count,
             },
             "embedding_api": {
                 "status": embedding_status,
                 "base_url": model_info.get("api_base_url", "") if model_info else "",
-                "model": f"{provider_name},{model_name}"
-            }
+                "model": f"{provider_name},{model_name}",
+            },
         }
 
     def get_collections(self) -> List[str]:
@@ -71,11 +72,15 @@ class SimilarityCalculator:
         """获取collection的字段列表"""
         return self.db_client.get_collection_fields(collection_name)
 
-    def get_collection_data(self, collection_name: str, limit: int = 1000) -> List[Dict]:
+    def get_collection_data(
+        self, collection_name: str, limit: int = 1000
+    ) -> List[Dict]:
         """获取collection的数据"""
         return self.db_client.get_all_data(collection_name, limit)
 
-    def calculate_cosine_similarity(self, vector1: List[float], vector2: List[float]) -> float:
+    def calculate_cosine_similarity(
+        self, vector1: List[float], vector2: List[float]
+    ) -> float:
         """计算两个向量的余弦相似度"""
         try:
             v1 = np.array(vector1)
@@ -103,47 +108,52 @@ class SimilarityCalculator:
             # 重新抛出维度不匹配等值错误
             raise
         except Exception as e:
-            print(f"❌ 计算相似度失败: {e}")
+            logger.error(f"Failed to calculate similarity: {e}")
             raise ValueError(f"计算相似度失败: {str(e)}")
 
-    def calculate_similarity_matrix(self, x_collection: str, y_collection: str,
-                                    x_max_items: int = 100, y_max_items: int = 100) -> Dict[str, Any]:
+    def calculate_similarity_matrix(
+        self,
+        x_collection: str,
+        y_collection: str,
+        x_max_items: int = 100,
+        y_max_items: int = 100,
+    ) -> Dict[str, Any]:
         """计算两个collection之间的相似度矩阵"""
         try:
             start_time = time.time()
 
-            print(f"🚀 开始计算相似度矩阵")
-            print(f"   X Collection: {x_collection} (最大项目数: {x_max_items})")
-            print(f"   Y Collection: {y_collection} (最大项目数: {y_max_items})")
+            logger.info(f"Starting similarity matrix calculation")
+            logger.info(f"X Collection: {x_collection} (max items: {x_max_items})")
+            logger.info(f"Y Collection: {y_collection} (max items: {y_max_items})")
 
             # 获取数据
-            print("📖 获取数据...")
+            logger.info("Fetching data...")
             x_data = self.get_collection_data(x_collection, x_max_items)
             y_data = self.get_collection_data(y_collection, y_max_items)
 
             if not x_data or not y_data:
                 raise ValueError("数据为空")
 
-            print(f"   X数据条数: {len(x_data)}")
-            print(f"   Y数据条数: {len(y_data)}")
+            logger.info(f"X data count: {len(x_data)}")
+            logger.info(f"Y data count: {len(y_data)}")
 
             # 提取向量
             x_vectors = []
             y_vectors = []
 
             for item in x_data:
-                if 'dense_vector' in item:
-                    x_vectors.append(item['dense_vector'])
-                elif 'embedding' in item:
-                    x_vectors.append(item['embedding'])
+                if "dense_vector" in item:
+                    x_vectors.append(item["dense_vector"])
+                elif "embedding" in item:
+                    x_vectors.append(item["embedding"])
                 else:
                     raise ValueError("X数据中缺少向量字段")
 
             for item in y_data:
-                if 'dense_vector' in item:
-                    y_vectors.append(item['dense_vector'])
-                elif 'embedding' in item:
-                    y_vectors.append(item['embedding'])
+                if "dense_vector" in item:
+                    y_vectors.append(item["dense_vector"])
+                elif "embedding" in item:
+                    y_vectors.append(item["embedding"])
                 else:
                     raise ValueError("Y数据中缺少向量字段")
 
@@ -159,7 +169,7 @@ class SimilarityCalculator:
                     )
 
             # 计算相似度矩阵
-            print("🔄 计算相似度矩阵...")
+            logger.info("Computing similarity matrix...")
             similarity_matrix = []
             total_comparisons = len(y_data) * len(x_data)
             completed = 0
@@ -173,67 +183,90 @@ class SimilarityCalculator:
 
                     if completed % 1000 == 0:
                         progress = (completed / total_comparisons) * 100
-                        print(f"   进度: {progress:.1f}% ({completed}/{total_comparisons})")
+                        logger.info(
+                            f"Progress: {progress:.1f}% ({completed}/{total_comparisons})"
+                        )
 
                 similarity_matrix.append(row)
 
             # 计算统计信息
             flat_similarities = [sim for row in similarity_matrix for sim in row]
             stats = {
-                'total_pairs': len(flat_similarities),
-                'avg_similarity': float(np.mean(flat_similarities)),
-                'min_similarity': float(np.min(flat_similarities)),
-                'max_similarity': float(np.max(flat_similarities)),
-                'std_similarity': float(np.std(flat_similarities)),
-                'high_similarity_count': sum(1 for sim in flat_similarities if sim > 0.8),
-                'medium_similarity_count': sum(1 for sim in flat_similarities if 0.5 <= sim <= 0.8),
-                'low_similarity_count': sum(1 for sim in flat_similarities if sim < 0.5),
-                'compute_time': (time.time() - start_time) * 1000
+                "total_pairs": len(flat_similarities),
+                "avg_similarity": float(np.mean(flat_similarities)),
+                "min_similarity": float(np.min(flat_similarities)),
+                "max_similarity": float(np.max(flat_similarities)),
+                "std_similarity": float(np.std(flat_similarities)),
+                "high_similarity_count": sum(
+                    1 for sim in flat_similarities if sim > 0.8
+                ),
+                "medium_similarity_count": sum(
+                    1 for sim in flat_similarities if 0.5 <= sim <= 0.8
+                ),
+                "low_similarity_count": sum(
+                    1 for sim in flat_similarities if sim < 0.5
+                ),
+                "compute_time": (time.time() - start_time) * 1000,
             }
 
             end_time = time.time()
-            print(f"✅ 相似度矩阵计算完成，耗时: {end_time - start_time:.2f}秒")
+            logger.info(
+                f"Similarity matrix calculation complete in {end_time - start_time:.2f}s"
+            )
 
             # 处理数据
             x_data_processed = []
             for i, item in enumerate(x_data):
-                item_copy = {k: v for k, v in item.items() if k not in ['dense_vector', 'embedding']}
-                item_copy['order_id'] = i
+                item_copy = {
+                    k: v
+                    for k, v in item.items()
+                    if k not in ["dense_vector", "embedding"]
+                }
+                item_copy["order_id"] = i
                 x_data_processed.append(item_copy)
 
             y_data_processed = []
             for i, item in enumerate(y_data):
-                item_copy = {k: v for k, v in item.items() if k not in ['dense_vector', 'embedding']}
-                item_copy['order_id'] = i
+                item_copy = {
+                    k: v
+                    for k, v in item.items()
+                    if k not in ["dense_vector", "embedding"]
+                }
+                item_copy["order_id"] = i
                 y_data_processed.append(item_copy)
 
             # 获取可用字段列表
-            x_available_fields = [k for k in x_data_processed[0].keys() if k not in ['id']]
-            y_available_fields = [k for k in y_data_processed[0].keys() if k not in ['id']]
+            x_available_fields = [
+                k for k in x_data_processed[0].keys() if k not in ["id"]
+            ]
+            y_available_fields = [
+                k for k in y_data_processed[0].keys() if k not in ["id"]
+            ]
 
             return {
-                'matrix': similarity_matrix,
-                'x_data': x_data_processed,
-                'y_data': y_data_processed,
-                'x_available_fields': x_available_fields,
-                'y_available_fields': y_available_fields,
-                'stats': stats,
-                'metadata': {
-                    'x_collection': x_collection,
-                    'y_collection': y_collection,
-                    'x_max_items': x_max_items,
-                    'y_max_items': y_max_items,
-                    'calculation_time': end_time - start_time
-                }
+                "matrix": similarity_matrix,
+                "x_data": x_data_processed,
+                "y_data": y_data_processed,
+                "x_available_fields": x_available_fields,
+                "y_available_fields": y_available_fields,
+                "stats": stats,
+                "metadata": {
+                    "x_collection": x_collection,
+                    "y_collection": y_collection,
+                    "x_max_items": x_max_items,
+                    "y_max_items": y_max_items,
+                    "calculation_time": end_time - start_time,
+                },
             }
 
         except Exception as e:
-            print(f"❌ 计算相似度矩阵失败: {e}")
+            logger.error(f"Similarity matrix calculation failed: {e}")
             traceback.print_exc()
             raise
 
-    def find_similar_items(self, collection_name: str, query_text: str,
-                           field_name: str, top_k: int = 10) -> List[Dict]:
+    def find_similar_items(
+        self, collection_name: str, query_text: str, field_name: str, top_k: int = 10
+    ) -> List[Dict]:
         """查找与查询文本最相似的项目"""
         try:
             # 将查询文本向量化
@@ -245,9 +278,7 @@ class SimilarityCalculator:
 
             # 在数据库中搜索
             search_results = self.db_client.query_by_vector(
-                collection_name=collection_name,
-                query_vector=query_vector,
-                top_k=top_k
+                collection_name=collection_name, query_vector=query_vector, top_k=top_k
             )
 
             # 格式化结果
@@ -258,21 +289,23 @@ class SimilarityCalculator:
                     "text": result.get(field_name, result.get("document", "")),
                     "similarity": result.get("similarity", 0.0),
                     "distance": result.get("distance", 0.0),
-                    "metadata": result.get("metadata", {})
+                    "metadata": result.get("metadata", {}),
                 }
                 results.append(formatted_result)
 
             return results
 
         except Exception as e:
-            print(f"❌ 相似项目搜索失败: {e}")
+            logger.error(f"Similar item search failed: {e}")
             raise
 
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """获取collection统计信息"""
         return self.db_client.get_collection_stats(collection_name)
 
-    def validate_request_data(self, data: Dict[str, Any], required_fields: List[str]) -> Optional[str]:
+    def validate_request_data(
+        self, data: Dict[str, Any], required_fields: List[str]
+    ) -> Optional[str]:
         """验证请求数据"""
         for field in required_fields:
             if field not in data:

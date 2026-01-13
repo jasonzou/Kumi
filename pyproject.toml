@@ -28,6 +28,7 @@ dependencies = [
     "jinja2",
     "python-multipart",
     "langchain-text-splitters",
+    "loguru",
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,5 @@
 from typing import Optional, Dict
+from loguru import logger
 from .base import VectorDBInterface
 from config.settings import settings
 import threading
@@ -17,7 +18,7 @@ class _VectorDBFactory:
 
         # 检查缓存
         if db_type in self._clients:
-            print(f"🔄 复用已缓存的 {db_type} 客户端")
+            logger.info(f"Reusing cached {db_type} client")
             return self._clients[db_type]
 
         # 线程安全地创建新客户端
@@ -33,21 +34,27 @@ class _VectorDBFactory:
 
     def _create_new_client(self, db_type: str) -> VectorDBInterface:
         """创建新的客户端实例"""
-        if db_type == 'chroma':
+        if db_type == "chroma":
             try:
                 from .chroma_client import ChromaDBClient
-                print(f"🆕 创建新的 ChromaDB 客户端")
+
+                logger.info("Creating new ChromaDB client")
                 return ChromaDBClient()
             except ImportError as e:
-                raise ImportError(f"使用ChromaDB需要安装相关依赖: pip install chromadb. 错误: {e}")
+                raise ImportError(
+                    f"使用ChromaDB需要安装相关依赖: pip install chromadb. 错误: {e}"
+                )
 
-        elif db_type == 'milvus':
+        elif db_type == "milvus":
             try:
                 from .milvus_client import MilvusDBClient
-                print(f"🆕 创建新的 Milvus 客户端")
+
+                logger.info("Creating new Milvus client")
                 return MilvusDBClient()
             except ImportError as e:
-                raise ImportError(f"使用Milvus需要安装相关依赖: pip install pymilvus. 错误: {e}")
+                raise ImportError(
+                    f"使用Milvus需要安装相关依赖: pip install pymilvus. 错误: {e}"
+                )
         else:
             raise ValueError(f"不支持的向量数据库类型: {db_type}")
 
@@ -66,7 +73,7 @@ class VectorDBFactory:
             with _factory_lock:
                 if _factory_instance is None:
                     _factory_instance = _VectorDBFactory()
-                    print("🔄 VectorDBFactory 单例已初始化")
+                    logger.info("VectorDBFactory singleton initialized")
         return _factory_instance
 
     @staticmethod

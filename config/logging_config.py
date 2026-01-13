@@ -1,50 +1,71 @@
-import logging
-import sys
+"""Loguru-based logging configuration for KUMI platform."""
+
 import os
+import sys
 from pathlib import Path
 from typing import Optional
+from loguru import logger
 from .settings import settings
 
 
-def setup_logging(log_level: Optional[str] = None, log_file: Optional[str] = None) -> None:
-    """配置日志"""
-    level = log_level or settings.LOG_LEVEL
+def setup_logging(
+    log_level: Optional[str] = None, log_file: Optional[str] = None
+) -> None:
+    """Configure loguru logging with console and file outputs."""
+    level = (log_level or settings.LOG_LEVEL).upper()
     file_path = log_file or settings.LOG_FILE
 
-    # 配置日志格式
-    formatter = logging.Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+    # Remove default handler
+    logger.remove()
+
+    # Add console handler with colored output
+    logger.add(
+        sys.stdout,
+        level=level,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>",
+        colorize=True,
     )
 
-    # 配置根日志器
-    logger = logging.getLogger()
-    logger.setLevel(getattr(logging, level.upper()))
-
-    # 清除现有处理器
-    logger.handlers.clear()
-
-    # 控制台处理器
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    # 文件处理器（如果指定了日志文件）
+    # Add file handler if log file is specified
     if file_path:
         try:
-            # 确保日志文件的目录存在
+            # Ensure log directory exists
             log_dir = os.path.dirname(file_path)
-            if log_dir:  # 如果有目录部分
+            if log_dir:
                 Path(log_dir).mkdir(parents=True, exist_ok=True)
 
-            file_handler = logging.FileHandler(file_path, encoding='utf-8')
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
+            logger.add(
+                file_path,
+                level=level,
+                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+                rotation="10 MB",
+                retention="10 days",
+                encoding="utf-8",
+            )
         except Exception as e:
-            # 如果文件日志设置失败，只使用控制台日志
-            print(f"警告: 无法设置文件日志 ({file_path}): {e}")
-            print("将仅使用控制台日志")
+            # If file logging fails, log to console only
+            logger.warning(f"Failed to set up file logging ({file_path}): {e}")
+            logger.warning("Falling back to console-only logging")
 
-    # 设置第三方库的日志级别
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    # Set third-party library log levels to WARNING to reduce noise
+    logger.level("INFO", color="<yellow>")
+    logger.level("WARNING", color="<yellow>")
+    logger.level("ERROR", color="<red>")
+
+    logger.info(f"Logging initialized at level: {level}")
+    if file_path:
+        logger.info(f"Log file: {file_path}")
+
+
+def get_logger(name: Optional[str] = None):
+    """Get a logger instance with the given name.
+
+    Args:
+        name: Optional logger name. If None, returns the root logger.
+
+    Returns:
+        A loguru logger instance.
+    """
+    if name:
+        return logger.bind(name=name)
+    return logger

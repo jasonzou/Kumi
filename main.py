@@ -4,18 +4,16 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from config.settings import settings
-import logging
+from config.logging_config import setup_logging, get_logger
 import os
 from pathlib import Path
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure logging with loguru
+setup_logging()
+logger = get_logger(__name__)
 
 app = FastAPI(
-    title="KUMI Knowledge API",
-    description="外部知识库API，兼容Dify",
-    version="1.0.0"
+    title="KUMI Knowledge API", description="外部知识库API，兼容Dify", version="1.0.0"
 )
 
 # 获取项目根目录
@@ -36,7 +34,11 @@ try:
     from api.middleware import SessionMiddleware
     from api.web import active_sessions, SESSION_TIMEOUT
 
-    app.add_middleware(SessionMiddleware, active_sessions=active_sessions, session_timeout=SESSION_TIMEOUT)
+    app.add_middleware(
+        SessionMiddleware,
+        active_sessions=active_sessions,
+        session_timeout=SESSION_TIMEOUT,
+    )
     logger.info("Session middleware added")
 except ImportError as e:
     logger.warning(f"Failed to import SessionMiddleware: {e}")
@@ -48,10 +50,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global exception: {exc}")
     return JSONResponse(
         status_code=500,
-        content={
-            "error_code": 500,
-            "error_msg": "Internal Server Error"
-        }
+        content={"error_code": 500, "error_msg": "Internal Server Error"},
     )
 
 
@@ -62,9 +61,12 @@ class CachedStaticFiles(StaticFiles):
         if response.status_code == 200:
             # 设置缓存 30 天
             response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
-            logger.info(f"Setting Cache-Control for {path}: {response.headers['Cache-Control']}")
+            logger.info(
+                f"Setting Cache-Control for {path}: {response.headers['Cache-Control']}"
+            )
 
         return response
+
 
 # 挂载静态文件
 if STATIC_DIR.exists():
@@ -129,11 +131,14 @@ except ImportError as e:
 try:
     from api.llm_evaluation import router as llm_api_router
 
-    app.include_router(llm_api_router, prefix="/web/api/llm", tags=["LLM Evaluation API"])
+    app.include_router(
+        llm_api_router, prefix="/web/api/llm", tags=["LLM Evaluation API"]
+    )
     enabled_services.append("llm Interface")
     logger.info("llm Interface enabled")
 except ImportError as e:
     logger.warning(f"Failed to import llm router: {e}")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -143,6 +148,7 @@ async def startup_event():
     # 初始化相似度计算器
     try:
         from api import knowledge_test
+
         knowledge_test.init_similarity_calculator()
         logger.info("相似度计算器初始化完成")
     except Exception as e:
@@ -158,7 +164,7 @@ async def debug_static():
         "static_dir": str(STATIC_DIR),
         "static_dir_exists": STATIC_DIR.exists(),
         "current_working_dir": str(Path.cwd()),
-        "files_in_static": []
+        "files_in_static": [],
     }
 
     if STATIC_DIR.exists():
@@ -175,7 +181,7 @@ async def health_check():
     return {
         "status": "healthy",
         "message": "KUMI Knowledge API is running",
-        "enabled_services": enabled_services
+        "enabled_services": enabled_services,
     }
 
 
@@ -189,19 +195,18 @@ async def root():
         "endpoints": {
             "health": "/health",
             "knowledge": "/api/v1/knowledge" if settings.ENABLE_KNOWLEDGE_API else None,
-            "knowledge_test": "/api/knowledge/similarity" if "Knowledge Test API" in enabled_services else None,
-            "document": "/api/v1/document" if settings.ENABLE_DOCUMENT_CONVERSION_API else None,
-            "web": "/web" if "Web Interface" in enabled_services else None
-        }
+            "knowledge_test": "/api/knowledge/similarity"
+            if "Knowledge Test API" in enabled_services
+            else None,
+            "document": "/api/v1/document"
+            if settings.ENABLE_DOCUMENT_CONVERSION_API
+            else None,
+            "web": "/web" if "Web Interface" in enabled_services else None,
+        },
     }
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        app,
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG
-    )
+    uvicorn.run(app, host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)

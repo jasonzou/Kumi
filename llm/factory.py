@@ -1,6 +1,7 @@
 # llm/factory.py
 
 from typing import Optional, Dict, Any
+from loguru import logger
 from .base import LLMClientInterface
 from .openai_client import OpenAIClient
 from .exceptions import LLMConfigException
@@ -11,14 +12,12 @@ class LLMFactory:
     """LLM客户端工厂类"""
 
     _clients: Dict[str, type] = {
-        'openai': OpenAIClient,
+        "openai": OpenAIClient,
     }
 
     @classmethod
     def create_client(
-            self,
-            provider: Optional[str] = None,
-            **kwargs
+        self, provider: Optional[str] = None, **kwargs
     ) -> LLMClientInterface:
         """
         创建LLM客户端
@@ -33,7 +32,7 @@ class LLMFactory:
         provider = provider or settings.DEFAULT_LLM_PROVIDER
 
         if provider not in self._clients:
-            available_providers = ', '.join(self._clients.keys())
+            available_providers = ", ".join(self._clients.keys())
             raise LLMConfigException(
                 f"Unsupported LLM provider: {provider}. "
                 f"Available providers: {available_providers}"
@@ -43,7 +42,7 @@ class LLMFactory:
 
         try:
             client = client_class(**kwargs)
-            print(f"✅ LLM客户端创建成功: {provider}")
+            logger.info(f"LLM client created successfully: {provider}")
             return client
         except Exception as e:
             raise LLMConfigException(f"Failed to create {provider} client: {e}")
