@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kumi"
+version = "0.1.0"
+description = "Visual knowledge base testing platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "mcp",
+    "anthropic",
+    "python-dotenv",
+    "openai",
+    "httpx",
+    "pandas",
+    "openpyxl",
+    "markitdown[all]",
+    "vanna",
+    "sqlalchemy",
+    "pymysql",
+    "chromadb",
+    "psycopg2-binary",
+    "weaviate-client>=3.26.7,<4.0.0",
+    "jinja2",
+    "python-multipart",
+    "langchain-text-splitters",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
