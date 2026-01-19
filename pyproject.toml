@@ -29,6 +29,7 @@ dependencies = [
     "python-multipart",
     "langchain-text-splitters",
     "loguru",
+    "pymilvus>=2.6.6",
 ]
 
 [project.optional-dependencies]
