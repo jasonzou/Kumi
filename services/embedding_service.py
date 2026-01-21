@@ -63,30 +63,18 @@ class EmbeddingService:
 
         return client
 
-    def encode_texts(
+    async def encode_texts(
             self,
             texts: List[str],
             provider_name: str = None,
             model_name: str = None,
             batch_size: int = 20
     ) -> List[List[float]]:
-        """
-        批量编码文本为向量
-
-        Args:
-            texts: 文本列表
-            provider_name: 供应商名称
-            model_name: 模型名称
-            batch_size: 批处理大小
-
-        Returns:
-            向量列表
-        """
         client = self.get_client(provider_name, model_name)
         client.set_batch_size(batch_size)
-        return client.encode_texts(texts)
+        return await client.encode_texts(texts)
 
-    def encode_texts_with_progress(
+    async def encode_texts_with_progress(
             self,
             texts: List[str],
             progress_callback: Optional[Callable[[int, int, str], None]],
@@ -94,24 +82,11 @@ class EmbeddingService:
             model_name: str = None,
             batch_size: int = 20
     ) -> List[List[float]]:
-        """
-        批量编码文本为向量(带进度回调)
-
-        Args:
-            texts: 文本列表
-            progress_callback: 进度回调函数
-            provider_name: 供应商名称
-            model_name: 模型名称
-            batch_size: 批处理大小
-
-        Returns:
-            向量列表
-        """
         client = self.get_client(provider_name, model_name)
         client.set_batch_size(batch_size)
-        return client.encode_texts_with_progress(texts, progress_callback)
+        return await client.encode_texts_with_progress(texts, progress_callback)
 
-    def encode_texts_with_progress_concurrent(
+    async def encode_texts_with_progress_concurrent(
             self,
             texts: List[str],
             progress_callback: Optional[Callable[[int, int, str], None]],
@@ -119,34 +94,15 @@ class EmbeddingService:
             model_name: str = None,
             batch_size: int = 20
     ) -> List[List[float]]:
-        """
-        并发安全的批量编码文本为向量(带进度回调)
-
-        与 encode_texts_with_progress 不同，此方法每次创建独立的客户端实例，
-        避免在并发场景下共享状态导致的问题。
-
-        Args:
-            texts: 文本列表
-            progress_callback: 进度回调函数
-            provider_name: 供应商名称
-            model_name: 模型名称
-            batch_size: 批处理大小
-
-        Returns:
-            向量列表
-        """
         self._ensure_config()
 
-        # 使用默认值
         if provider_name is None or model_name is None:
             provider_name, model_name = self.config.get_default_model()
 
-        # 获取模型信息
         model_info = self.config.get_model_info(provider_name, model_name)
         if not model_info:
             raise ValueError(f"未找到模型配置: provider={provider_name}, model={model_name}")
 
-        # 为并发调用创建独立的客户端实例（不使用缓存）
         client = _OpenAIEmbeddingAPI(
             base_url=model_info['api_base_url'],
             token=model_info['api_key'],
@@ -154,27 +110,17 @@ class EmbeddingService:
             max_batch_size=batch_size
         )
 
-        return client.encode_texts_with_progress(texts, progress_callback)
+        return await client.encode_texts_with_progress(texts, progress_callback)
 
-    def test_connection(
+    async def test_connection(
             self,
             provider_name: str = None,
             model_name: str = None
     ) -> dict:
-        """
-        测试embedding API连接
-
-        Args:
-            provider_name: 供应商名称
-            model_name: 模型名称
-
-        Returns:
-            {"success": bool, "message": str, "dimension": int}
-        """
         try:
             logger.info(f"开始测试embedding连接: provider={provider_name}, model={model_name}")
             client = self.get_client(provider_name, model_name)
-            result = client.test_connection()
+            result = await client.test_connection()
 
             if result["success"]:
                 logger.info(f"Embedding连接测试成功: provider={provider_name}, model={model_name}, dimension={result['dimension']}")

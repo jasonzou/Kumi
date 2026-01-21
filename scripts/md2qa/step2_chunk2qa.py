@@ -44,7 +44,7 @@ def generate(prompt, model_name=None, system=None, temperature=None,
         # 从配置读取或使用参数
         api_key = api_key or settings.OPENAI_API_KEY
         base_url = base_url or settings.OPENAI_BASE_URL
-        default_model = "qwen/qwen3-vl-235b-a22b-instruct"
+        default_model = "qwen3:8b"
 
         url = f"{base_url}/chat/completions"
 

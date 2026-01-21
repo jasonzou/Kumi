@@ -1,96 +1,88 @@
 # AGENTS.md - KUMI Knowledge Base Testing Platform
 
-This file contains essential information for agentic coding agents working in the KUMI repository.
-
 ## Project Overview
 
-KUMI is a visual knowledge base testing platform designed for rapid evaluation of knowledge base effectiveness. It provides automated testing capabilities for embedding and LLM systems, with flexible knowledge base construction and management features.
+KUMI is a visual knowledge base testing platform for evaluating embedding and LLM system effectiveness. Built with FastAPI + Python 3.12+.
+
+## Quick Start
+
+```bash
+# Environment setup
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Config files
+cp config/.env.example config/.env
+cp config/embedding_providers.yaml.example config/embedding_providers.yaml
+
+# Run development server
+uv run scripts/start_dev.py
+# Access: http://127.0.0.1:8000/web (admin / KUMI-admin-123456)
+```
 
 ## Development Commands
 
-### Environment Setup
 ```bash
-# Create and activate virtual environment (Python 3.12)
-uv venv --python 3.12
-source .venv/bin/activate  # Linux/Mac
-# or
-.venv\Scripts\activate  # Windows
+# Start server
+uv run scripts/start_dev.py          # Preferred
+python main.py                        # Alternative
 
-# Install dependencies
-uv pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# Copy configuration files
-cp config/.env.example config/.env
-cp config/embedding_providers.yaml.example config/embedding_providers.yaml
-```
-
-### Running the Application
-```bash
-# Start development server
-uv run scripts/start_dev.py
-# Alternative: python main.py
-
-# Access web interface
-http://127.0.0.1:8000/web
-# Default credentials: admin / KUMI-admin-123456
-```
-
-### Testing Commands
-```bash
-# Run specific test files (no comprehensive test suite found)
-python services/testqa_service.py  # Test QA service functionality
-python tests/test_RAG/similarity_service.py  # Test similarity calculations
-```
-
-### External Services
-```bash
-# Start ChromaDB (default vector database)
+# Start ChromaDB (required dependency)
 chroma run --path storage/testdb --port 8081 --host 127.0.0.1
 
-# Start embedding service (if using local models)
-cd scripts
-uv run embedding_serve.py --model_path ./Qwen3-Embedding-0.6B --model_name Qwen3-Embedding-0.6B
+# Start local embedding service (optional)
+cd scripts && uv run embedding_serve.py --model_path ./Qwen3-Embedding-0.6B --model_name Qwen3-Embedding-0.6B
+```
+
+## Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run single test file
+uv run pytest tests/test_file.py
+
+# Run single test function
+uv run pytest tests/test_file.py::test_function_name
+
+# With verbose output
+uv run pytest -v tests/test_file.py
+```
+
+Note: Test suite is minimal. Most testing is done via service files directly:
+```bash
+python services/testqa_service.py
 ```
 
 ## Code Style Guidelines
 
-### Python Code Style
-- **Language**: Python 3.12+
-- **Framework**: FastAPI for web APIs
-- **Package Manager**: uv (preferred) or pip
-- **Configuration**: Environment variables via .env files
-
-### Import Organization
+### Imports (order matters)
 ```python
-# Standard library imports first
+# 1. Standard library
 import os
-import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-# Third-party imports
+# 2. Third-party
 import pandas as pd
-import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from loguru import logger
 
-# Local imports
+# 3. Local
 from config.settings import settings
 from services.knowledge_service import KnowledgeService
-from vector_db.factory import VectorDBFactory
 ```
 
-### Class and Function Naming
-- **Classes**: PascalCase (e.g., `KnowledgeService`, `VectorDBInterface`)
-- **Functions/Methods**: snake_case (e.g., `create_collection`, `search_knowledge`)
-- **Constants**: UPPER_SNAKE_CASE (e.g., `DEFAULT_MODEL`, `MAX_FILE_SIZE`)
-- **Private methods**: prefix with underscore (e.g., `_load_config`, `_validate_input`)
+### Naming Conventions
+- **Classes**: PascalCase (`KnowledgeService`, `VectorDBInterface`)
+- **Functions/Methods**: snake_case (`create_collection`, `search_knowledge`)
+- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_MODEL`, `MAX_FILE_SIZE`)
+- **Private**: underscore prefix (`_load_config`, `_validate_input`)
 
-### Type Hints
-Always use type hints for function signatures and class attributes:
+### Type Hints (required for all functions)
 ```python
-from typing import List, Dict, Any, Optional, Union
-
 def search_knowledge(
     query: str,
     top_k: int = 10,
@@ -100,15 +92,17 @@ def search_knowledge(
     pass
 ```
 
-### Error Handling
-- Use structured exception handling with specific exception types
-- Log errors appropriately using the logging module
-- Return meaningful error responses in API endpoints
+### Logging (use loguru)
 ```python
-import logging
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+logger.info(f"Processing: {filename}")
+logger.error(f"Failed: {e}")
+logger.debug(f"Debug info: {data}")
+```
 
+### Error Handling
+```python
 try:
     result = await some_operation()
     return result
@@ -120,10 +114,7 @@ except Exception as e:
     raise HTTPException(status_code=500, detail="Internal server error")
 ```
 
-### API Design Patterns
-- Use FastAPI with Pydantic models for request/response validation
-- Follow RESTful conventions for endpoint design
-- Include proper HTTP status codes and error handling
+### API Endpoints (FastAPI + Pydantic)
 ```python
 from pydantic import BaseModel, Field
 from fastapi import APIRouter
@@ -140,152 +131,64 @@ async def search_endpoint(request: SearchRequest):
     pass
 ```
 
-## Architecture Patterns
+## Architecture
 
-### Service Layer Architecture
-- **API Layer** (`api/`): FastAPI route handlers and request/response models
-- **Service Layer** (`services/`): Business logic and orchestration
-- **Data Layer** (`vector_db/`, `llm/`): Database and external service clients
-- **Config Layer** (`config/`): Configuration management and settings
-
-### Factory Pattern for Clients
-Use factory pattern for creating database and LLM clients:
-```python
-# In factory.py
-class VectorDBFactory:
-    @staticmethod
-    def create_client() -> VectorDBInterface:
-        db_type = settings.vector_db_type
-        if db_type == "chroma":
-            return ChromaClient()
-        elif db_type == "milvus":
-            return MilvusClient()
-        else:
-            raise ValueError(f"Unsupported DB type: {db_type}")
-```
-
-### Configuration Management
-- Use environment variables for all configuration
-- Centralize settings in `config/settings.py`
-- Provide sensible defaults for all options
-- Use property methods for derived configurations
-
-## File Organization
-
-### Directory Structure
 ```
 KUMI/
-├── api/                    # FastAPI route handlers
-│   ├── models.py          # Pydantic models
-│   ├── knowledge.py       # Knowledge base APIs
-│   └── web.py             # Web interface APIs
-├── services/              # Business logic layer
-│   ├── knowledge_service.py
-│   └── embedding_service.py
-├── vector_db/             # Vector database clients
-│   ├── base.py            # Interface definitions
-│   ├── chroma_client.py   # ChromaDB implementation
-│   └── factory.py         # Client factory
-├── llm/                   # LLM client implementations
-│   ├── base.py            # Interface definitions
-│   ├── openai_client.py   # OpenAI implementation
-│   └── factory.py         # Client factory
-├── config/                # Configuration management
-│   ├── settings.py        # Main settings class
-│   └── embedding_config.py # Embedding provider config
-├── web/                   # Frontend assets
-│   ├── static/           # CSS, JS, images
-│   └── templates/        # HTML templates
-└── scripts/              # Utility and startup scripts
+├── api/                    # FastAPI route handlers + Pydantic models
+├── services/               # Business logic layer
+├── vector_db/              # Vector DB clients (ChromaDB, Milvus)
+│   ├── base.py            # VectorDBInterface (ABC)
+│   └── factory.py         # VectorDBFactory
+├── llm/                    # LLM client implementations
+├── config/                 # Settings, logging, embedding config
+├── web/                    # Frontend (static/, templates/)
+└── scripts/                # Utility and startup scripts
 ```
 
-### Module Conventions
-- Each module should have a clear, single responsibility
-- Use `__init__.py` to expose public interfaces
-- Include docstrings for all public functions and classes
-- Follow the dependency injection pattern for configuration
+### Key Patterns
+- **Factory Pattern**: `VectorDBFactory.create_client()`, `LLMFactory.create_client()`
+- **Interface-based**: All DB/LLM clients implement abstract base classes
+- **Async I/O**: Use `async/await` for all I/O operations
+- **Settings singleton**: `from config.settings import settings`
 
-## Testing Guidelines
+## Configuration
 
-### Test Organization
-- Unit tests should be in the same module or a dedicated `tests/` directory
-- Integration tests should test service interactions
-- Use descriptive test names that explain the scenario
+All config via environment variables in `config/.env`:
 
-### Test Data Management
-- Store test data in `dataset/` directory
-- Use configuration files for test parameters
-- Clean up test data after test completion
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOST` | 0.0.0.0 | Server host |
+| `PORT` | 8000 | Server port |
+| `DEBUG` | False | Debug mode |
+| `VECTOR_DB_TYPE` | chroma | Vector DB (chroma/milvus) |
+| `CHROMA_HOST` | localhost | ChromaDB host |
+| `CHROMA_PORT` | 8000 | ChromaDB port |
+| `OPENAI_API_KEY` | - | LLM API key |
+| `ADMIN_USER_NAME` | admin | Web UI username |
+| `ADMIN_PASSWORD` | KUMI-admin-123456 | Web UI password |
 
-## Database and External Services
+## Important Notes
 
-### Vector Database Support
-- **Primary**: ChromaDB (default for cross-platform deployment)
-- **Secondary**: Milvus (for production-scale deployments)
-- Use factory pattern for database client creation
+- **No linting config**: No ruff/black/flake8 configured. Follow existing code style.
+- **Bilingual codebase**: Comments may be in Chinese or English.
+- **ChromaDB required**: Must be running on port 8081 for vector operations.
+- **Embedding service**: Either configure cloud API in `embedding_providers.yaml` or run local service.
 
-### LLM Integration
-- Support for OpenAI-compatible APIs
-- Configurable through environment variables
-- Use interface-based design for provider flexibility
+## Common Tasks
 
-### Embedding Services
-- Support for local and cloud embedding providers
-- Configuration via `embedding_providers.yaml`
-- Default to local Qwen3-Embedding-0.6B model
+### Add new API endpoint
+1. Create Pydantic models in `api/models.py`
+2. Add route handler in appropriate `api/*.py` file
+3. Implement business logic in `services/*.py`
+4. Register router in `main.py`
 
-## Security Considerations
+### Add new vector DB support
+1. Implement `VectorDBInterface` from `vector_db/base.py`
+2. Add to `VectorDBFactory` in `vector_db/factory.py`
+3. Add config options in `config/settings.py`
 
-### Authentication
-- Web interface uses basic auth (configurable via .env)
-- API keys for external service integration
-- Token-based verification for direct connections
-
-### Data Protection
-- Sanitize all user inputs
-- Validate file uploads and size limits
-- Use proper error handling to prevent information leakage
-
-## Performance Guidelines
-
-### Async/Await Usage
-- Use async/await for I/O operations
-- Implement proper concurrency for external service calls
-- Use connection pooling for database operations
-
-### Caching Strategy
-- Cache static files for 30 days
-- Consider caching frequent embedding computations
-- Use appropriate cache headers for API responses
-
-## Logging and Monitoring
-
-### Logging Configuration
-- Use Python's logging module
-- Configure log levels via environment variables
-- Include structured logging for API requests/responses
-
-### Health Checks
-- Implement health check endpoints for all services
-- Monitor external service connectivity
-- Log startup and shutdown events
-
-## Deployment Notes
-
-### Environment Variables
-All configuration should be externalized via environment variables. Key variables include:
-- `HOST`, `PORT`: Server binding
-- `DEBUG`: Development mode flag
-- `VECTOR_DB_TYPE`: Database selection
-- `OPENAI_API_KEY`: LLM service access
-- `ADMIN_USER_NAME`, `ADMIN_PASSWORD`: Web interface credentials
-
-### Service Dependencies
-- ChromaDB (port 8081 by default)
-- Optional: Local embedding service (port 8504)
-- Optional: External LLM APIs
-
-### Production Considerations
-- Use proper reverse proxy (nginx) for static file serving
-- Implement rate limiting for API endpoints
-- Set up monitoring and alerting for service health
+### Add new LLM provider
+1. Implement base class from `llm/base.py`
+2. Add to LLM factory
+3. Configure via environment variables

@@ -83,15 +83,8 @@ class KnowledgeService:
             model_name: embedding模型名称,None表示使用默认
         """
         try:
-            # 使用asyncio在线程池中运行同步函数
-            loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                self.embedding_service.encode_texts,
-                [query],
-                provider_name,
-                model_name,
-                1  # batch_size=1 for single query
+            embeddings = await self.embedding_service.encode_texts(
+                [query], provider_name, model_name, batch_size=1
             )
             return embeddings
         except Exception as e:

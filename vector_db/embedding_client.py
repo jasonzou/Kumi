@@ -1,5 +1,6 @@
 import time
-import requests
+import asyncio
+import httpx
 from typing import List, Callable, Optional
 from loguru import logger
 from config.settings import settings
@@ -29,7 +30,6 @@ class _OpenAIEmbeddingAPI:
         self.token = token or (model_info.get("api_key") if model_info else "")
         self.model = model or f"{provider_name},{model_name}"
         self.headers = {
-            "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
         self.max_batch_size = max_batch_size
@@ -42,8 +42,7 @@ class _OpenAIEmbeddingAPI:
             f"OpenAIEmbeddingAPI created (model: {self.model}, batch_size: {self.max_batch_size})"
         )
 
-    def _lazy_init(self):
-        """延迟初始化,在第一次实际调用时初始化"""
+    async def _lazy_init_async(self):
         if self._initialized:
             return
 
@@ -52,45 +51,23 @@ class _OpenAIEmbeddingAPI:
                 return
 
             logger.debug("First call, detecting embedding dimension...")
-            # 在第一次调用时获取维度,而不是在初始化时
             if self.embedding_dim is None:
-                self.embedding_dim = self._get_actual_embedding_dimension()
+                self.embedding_dim = await self._get_actual_embedding_dimension()
             self._initialized = True
-            logger.info(
-                f"OpenAIEmbeddingAPI initialized, dimension: {self.embedding_dim}"
-            )
+            logger.info(f"OpenAIEmbeddingAPI initialized, dimension: {self.embedding_dim}")
 
     def set_batch_size(self, batch_size: int):
-        """动态设置批处理大小"""
-        self._lazy_init()
         self.max_batch_size = batch_size
         logger.info(f"Embedding batch size set to: {self.max_batch_size}")
 
-    def test_connection(self):
-        """
-        测试API连接(手动调用) - 通过实际调用embedding接口来测试
-
-        不再依赖/health端点，而是直接测试/v1/embeddings端点
-        这样可以同时验证连接性和获取embedding维度
-
-        Returns:
-            dict: {"success": bool, "message": str, "dimension": int}
-        """
+    async def test_connection(self) -> dict:
         try:
             logger.info("Testing embedding API connection...")
+            test_response = await self._encode_single_batch(["测试连接"], get_dimension=True)
 
-            # 使用一个简单的测试文本
-            test_text = "测试连接"
-
-            # 直接调用embedding接口进行测试
-            test_response = self._encode_single_batch([test_text], get_dimension=True)
-
-            # 检查返回结果
             if test_response and len(test_response) > 0:
                 dimension = len(test_response[0])
-                logger.info(
-                    f"API connection successful, embedding dimension: {dimension}"
-                )
+                logger.info(f"API connection successful, embedding dimension: {dimension}")
                 return {
                     "success": True,
                     "message": f"API连接成功，embedding维度: {dimension}",
@@ -98,157 +75,114 @@ class _OpenAIEmbeddingAPI:
                 }
             else:
                 logger.error("API returned empty result")
-                return {
-                    "success": False,
-                    "message": "API返回了空结果，请检查模型配置",
-                    "dimension": None,
-                }
+                return {"success": False, "message": "API返回了空结果，请检查模型配置", "dimension": None}
 
-        except requests.exceptions.ConnectionError as e:
-            # 连接错误（无法连接到服务器）
+        except httpx.ConnectError as e:
             error_msg = f"无法连接到embedding服务 ({self.base_url}): {str(e)}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg, "dimension": None}
-        except requests.exceptions.Timeout as e:
-            # 超时错误
-            error_msg = f"连接超时 (timeout={self.request_timeout}s)，请检查服务是否正常运行: {str(e)}"
+        except httpx.TimeoutException as e:
+            error_msg = f"连接超时 (timeout={self.request_timeout}s): {str(e)}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg, "dimension": None}
-        except requests.exceptions.HTTPError as e:
-            # HTTP错误（4xx, 5xx）
+        except httpx.HTTPError as e:
             error_msg = f"HTTP错误: {str(e)}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg, "dimension": None}
         except Exception as e:
-            # 其他未预期的错误
             error_msg = f"测试连接时发生错误: {str(e)}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg, "dimension": None}
 
-    def _get_actual_embedding_dimension(self) -> int:
-        """通过实际调用API获取embedding维度"""
+    async def _get_actual_embedding_dimension(self) -> int:
         try:
             logger.debug("Detecting embedding dimension...")
-            test_response = self._encode_single_batch(["测试文本"], get_dimension=True)
+            test_response = await self._encode_single_batch(["测试文本"], get_dimension=True)
             if test_response and len(test_response) > 0:
                 actual_dim = len(test_response[0])
                 logger.info(f"Detected embedding dimension: {actual_dim}")
                 return actual_dim
             else:
-                logger.warning(
-                    "Could not detect embedding dimension, using default 1024"
-                )
+                logger.warning("Could not detect embedding dimension, using default 1024")
                 return 1024
         except Exception as e:
-            logger.warning(
-                f"Failed to detect embedding dimension: {e}, using default 1024"
-            )
+            logger.warning(f"Failed to detect embedding dimension: {e}, using default 1024")
             return 1024
 
-    def encode_texts(self, texts: List[str]) -> List[List[float]]:
-        """批量编码文本为向量"""
-        self._lazy_init()
+    async def encode_texts(self, texts: List[str]) -> List[List[float]]:
+        await self._lazy_init_async()
         if not texts:
             return []
 
         all_embeddings = []
         total_batches = (len(texts) + self.max_batch_size - 1) // self.max_batch_size
 
-        logger.info(
-            f"Starting batch encoding: {len(texts)} texts, {total_batches} batches"
-        )
+        logger.info(f"Starting batch encoding: {len(texts)} texts, {total_batches} batches")
 
         for i in range(0, len(texts), self.max_batch_size):
             batch_texts = texts[i : i + self.max_batch_size]
             batch_num = i // self.max_batch_size + 1
 
-            logger.debug(
-                f"Processing batch {batch_num}/{total_batches} ({len(batch_texts)} texts)"
-            )
-            batch_embeddings = self._encode_single_batch(batch_texts)
+            logger.debug(f"Processing batch {batch_num}/{total_batches} ({len(batch_texts)} texts)")
+            batch_embeddings = await self._encode_single_batch(batch_texts)
             all_embeddings.extend(batch_embeddings)
 
             if i + self.max_batch_size < len(texts):
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
 
         logger.info(f"Batch encoding complete: {len(all_embeddings)} vectors generated")
         return all_embeddings
 
-    def encode_texts_with_progress(
+    async def encode_texts_with_progress(
         self,
         texts: List[str],
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> List[List[float]]:
-        """批量编码文本为向量（带进度回调的新方法）"""
-        self._lazy_init()
+        await self._lazy_init_async()
         if not texts:
             return []
 
         all_embeddings = []
         total_batches = (len(texts) + self.max_batch_size - 1) // self.max_batch_size
 
-        # 初始进度回调
         if progress_callback:
-            progress_callback(
-                0,
-                total_batches,
-                f"开始向量化 {len(texts)} 个文本，分为 {total_batches} 个批次",
-            )
+            progress_callback(0, total_batches, f"开始向量化 {len(texts)} 个文本，分为 {total_batches} 个批次")
 
-        logger.info(
-            f"Starting batch encoding: {len(texts)} texts, {total_batches} batches"
-        )
+        logger.info(f"Starting batch encoding: {len(texts)} texts, {total_batches} batches")
 
         for i in range(0, len(texts), self.max_batch_size):
             batch_texts = texts[i : i + self.max_batch_size]
             batch_num = i // self.max_batch_size + 1
 
-            # 批次开始回调
             if progress_callback:
-                progress_callback(
-                    batch_num - 1,
-                    total_batches,
-                    f"正在处理第 {batch_num}/{total_batches} 批次 ({len(batch_texts)} 个文本)",
-                )
+                progress_callback(batch_num - 1, total_batches, f"正在处理第 {batch_num}/{total_batches} 批次 ({len(batch_texts)} 个文本)")
 
-            logger.debug(
-                f"Processing batch {batch_num}/{total_batches} ({len(batch_texts)} texts)"
-            )
+            logger.debug(f"Processing batch {batch_num}/{total_batches} ({len(batch_texts)} texts)")
 
             start_time = time.time()
-            batch_embeddings = self._encode_single_batch(batch_texts)
+            batch_embeddings = await self._encode_single_batch(batch_texts)
             end_time = time.time()
 
             all_embeddings.extend(batch_embeddings)
 
-            # 批次完成回调
             if progress_callback:
-                progress_callback(
-                    batch_num,
-                    total_batches,
-                    f"第 {batch_num}/{total_batches} 批次完成 ({end_time - start_time:.2f}秒)",
-                )
+                progress_callback(batch_num, total_batches, f"第 {batch_num}/{total_batches} 批次完成 ({end_time - start_time:.2f}秒)")
 
             if i + self.max_batch_size < len(texts):
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
 
         logger.info(f"Batch encoding complete: {len(all_embeddings)} vectors generated")
 
-        # 最终完成回调
         if progress_callback:
-            progress_callback(
-                total_batches,
-                total_batches,
-                f"向量化完成，共处理 {len(all_embeddings)} 个向量",
-            )
+            progress_callback(total_batches, total_batches, f"向量化完成，共处理 {len(all_embeddings)} 个向量")
 
         return all_embeddings
 
-    def _encode_single_batch(
+    async def _encode_single_batch(
         self, texts: List[str], get_dimension: bool = False
     ) -> List[List[float]]:
         """
-        编码单个批次的文本
+        编码单个批次的文本 (async with httpx)
 
         Args:
             texts: 要编码的文本列表
@@ -261,73 +195,65 @@ class _OpenAIEmbeddingAPI:
             当get_dimension=True且失败时抛出异常
         """
         payload = {"model": self.model, "input": texts, "encoding_format": "float"}
+        logger.debug(f"Embedding request: url={self.base_url}, model={self.model}, texts={len(texts)}")
 
         max_retries = 5
         last_error = None
 
-        for attempt in range(max_retries):
-            try:
-                start_time = time.time()
-                response = requests.post(
-                    f"{self.base_url}/v1/embeddings",
-                    headers=self.headers,
-                    json=payload,
-                    timeout=self.request_timeout,
-                )
-                end_time = time.time()
+        async with httpx.AsyncClient(timeout=self.request_timeout) as client:
+            for attempt in range(max_retries):
+                try:
+                    start_time = time.time()
+                    response = await client.post(
+                        self.base_url,
+                        headers=self.headers,
+                        json=payload,
+                    )
+                    end_time = time.time()
+                    logger.debug(f"Embedding response: status={response.status_code}, time={end_time - start_time:.2f}s")
 
-                if response.status_code == 200:
-                    data = response.json()
-                    embeddings = [item["embedding"] for item in data["data"]]
-                    if not get_dimension:
-                        logger.debug(f"Batch completed in {end_time - start_time:.2f}s")
-                    return embeddings
-                else:
-                    error_msg = f"API请求失败: {response.status_code} - {response.text}"
-                    last_error = Exception(error_msg)
-                    if attempt == max_retries - 1:
-                        # 最后一次重试失败，抛出异常
-                        raise last_error
+                    if response.status_code == 200:
+                        data = response.json()
+                        embeddings = [item["embedding"] for item in data["data"]]
+                        if not get_dimension:
+                            logger.debug(f"Batch completed in {end_time - start_time:.2f}s")
+                        return embeddings
                     else:
                         logger.warning(
-                            f"{error_msg}, retrying ({attempt + 1}/{max_retries})"
+                            f"API request failed with status {response.status_code}: {response.text}"
                         )
-                        time.sleep(2**attempt)
+                        error_msg = f"API请求失败: {response.status_code} - {response.text}"
+                        last_error = Exception(error_msg)
+                        if attempt == max_retries - 1:
+                            raise last_error
+                        else:
+                            logger.warning(f"{error_msg}, retrying ({attempt + 1}/{max_retries})")
+                            await asyncio.sleep(2**attempt)
 
-            except requests.exceptions.Timeout as e:
-                last_error = e
-                if attempt == max_retries - 1:
-                    # 最后一次重试失败，抛出异常
-                    raise requests.exceptions.Timeout("API请求超时")
-                else:
-                    logger.warning(
-                        f"API request timeout, retrying ({attempt + 1}/{max_retries})"
-                    )
-                    time.sleep(2**attempt)
-            except requests.exceptions.ConnectionError as e:
-                # 连接错误通常不需要重试，直接抛出
-                last_error = e
-                raise
-            except requests.exceptions.RequestException as e:
-                # 其他requests相关错误
-                last_error = e
-                if attempt == max_retries - 1:
+                except httpx.TimeoutException as e:
+                    last_error = e
+                    if attempt == max_retries - 1:
+                        raise httpx.TimeoutException("API请求超时")
+                    else:
+                        logger.warning(f"API request timeout, retrying ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(2**attempt)
+                except httpx.ConnectError as e:
+                    last_error = e
                     raise
-                else:
-                    logger.warning(
-                        f"Request exception: {e}, retrying ({attempt + 1}/{max_retries})"
-                    )
-                    time.sleep(2**attempt)
-            except Exception as e:
-                # 其他未预期的异常（如JSON解析错误）
-                last_error = e
-                if attempt == max_retries - 1:
-                    raise Exception(f"API请求异常: {e}")
-                else:
-                    logger.warning(
-                        f"API exception: {e}, retrying ({attempt + 1}/{max_retries})"
-                    )
-                    time.sleep(2**attempt)
+                except httpx.HTTPError as e:
+                    last_error = e
+                    if attempt == max_retries - 1:
+                        raise
+                    else:
+                        logger.warning(f"HTTP error: {e}, retrying ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(2**attempt)
+                except Exception as e:
+                    last_error = e
+                    if attempt == max_retries - 1:
+                        raise Exception(f"API请求异常: {e}")
+                    else:
+                        logger.warning(f"API exception: {e}, retrying ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(2**attempt)
 
         # 如果是测试连接（get_dimension=True），失败时抛出异常
         if get_dimension and last_error:

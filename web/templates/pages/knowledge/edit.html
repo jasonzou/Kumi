@@ -469,6 +469,7 @@
     async function loadEmbeddingModels() {
         try {
             const response = await fetch('/web/api/knowledge/embedding/models');
+            console.info("加载embedding模型 --- response", response);
             const result = await response.json();
 
             if (result.status === 'success') {
