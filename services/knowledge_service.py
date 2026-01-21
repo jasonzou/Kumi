@@ -812,9 +812,7 @@ class KnowledgeService:
                 # 【重要】记录使用的embedding模型
                 logger.info(f"任务 {task_id} 使用embedding模型: provider={embedding_provider}, model={embedding_model}, batch_size={batch_size}, num_workers={num_workers}")
 
-                # 向量化（支持并发Worker）
                 embedding_start_time = time.time()
-                loop = asyncio.get_event_loop()
 
                 if num_workers <= 1:
                     # 单Worker模式（原有逻辑）
@@ -828,9 +826,7 @@ class KnowledgeService:
                             sub_progress=embedding_progress
                         )
 
-                    vectors = await loop.run_in_executor(
-                        None,
-                        self.embedding_service.encode_texts_with_progress,
+                    vectors = await self.embedding_service.encode_texts_with_progress(
                         embedding_texts,
                         embedding_progress_callback,
                         embedding_provider,
@@ -863,16 +859,9 @@ class KnowledgeService:
                         return callback
 
                     async def encode_chunk(worker_id, texts):
-                        """单个Worker的编码任务"""
                         callback = make_worker_callback(worker_id)
-                        result = await loop.run_in_executor(
-                            None,
-                            self.embedding_service.encode_texts_with_progress_concurrent,
-                            texts,
-                            callback,
-                            embedding_provider,
-                            embedding_model,
-                            batch_size
+                        result = await self.embedding_service.encode_texts_with_progress_concurrent(
+                            texts, callback, embedding_provider, embedding_model, batch_size
                         )
                         return (worker_id, result)
 
@@ -1168,14 +1157,8 @@ class KnowledgeService:
 
                 logger.info(f"重新向量化文档 {document_id}，使用文本: {embedding_text[:100]}...")
 
-                # 调用 embedding 服务
-                embeddings = await loop.run_in_executor(
-                    None,
-                    self.embedding_service.encode_texts,
-                    [embedding_text],
-                    embedding_provider,
-                    embedding_model,
-                    1  # batch_size
+                embeddings = await self.embedding_service.encode_texts(
+                    [embedding_text], embedding_provider, embedding_model, batch_size=1
                 )
                 new_embedding = embeddings[0]
 

@@ -761,9 +761,8 @@ async def test_embedding_connection(request: Request):
                 "message": f"无效的模型标识符: {str(e)}"
             }, status_code=400)
 
-        # 测试连接
         logger.info(f"用户 {user.get('username', 'unknown')} 测试embedding连接: {provider},{model}")
-        result = knowledge_service.embedding_service.test_connection(provider, model)
+        result = await knowledge_service.embedding_service.test_connection(provider, model)
 
         if result["success"]:
             logger.info(f"用户 {user.get('username', 'unknown')} 测试embedding连接成功: {provider},{model}, 维度: {result['dimension']}")

@@ -30,7 +30,7 @@ class _OpenAIEmbeddingAPI:
         self.token = token or (model_info.get("api_key") if model_info else "")
         self.model = model or f"{provider_name},{model_name}"
         self.headers = {
-            "Content-Type": "application/json",
+            "content-type": "application/json",
         }
         self.max_batch_size = max_batch_size
         self.request_timeout = 120
