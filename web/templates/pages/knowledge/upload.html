@@ -1323,10 +1323,10 @@
             document.querySelector(`[data-template="${templateName}"]`).classList.add('selected');
 
             if (templateName !== '自定义模板') {
-                customTemplate.value = template.template;
-                // 只有在高级配置关闭时才自动同步
+                const templateValue = template.template || '';
+                customTemplate.value = templateValue;
                 if (!advancedConfigEnabled) {
-                    documentTemplate.value = template.template;
+                    documentTemplate.value = templateValue;
                 }
             } else {
                 customTemplate.value = '';
@@ -1336,7 +1336,6 @@
                 customTemplate.focus();
             }
 
-            // 验证字段并计算批处理大小
             validateTemplateFields();
             calculateBatchSize();
         }
@@ -1351,14 +1350,23 @@
     }
 
     async function startProcessing() {
-        const embeddingTemplate = customTemplate.value.trim();
-        const docTemplate = documentTemplate.value.trim();
+        let embeddingTemplate = customTemplate.value.trim();
+        let docTemplate = documentTemplate.value.trim();
         const collection = collectionName.value.trim();
         const batch = parseInt(batchSize.value);
         const workers = parseInt(document.getElementById('numWorkers').value);
         const selectedModel = embeddingModel.value;
 
-        // 验证参数
+        // Fallback to selectedTemplate if customTemplate is empty
+        if (!embeddingTemplate && selectedTemplate && selectedTemplate.template) {
+            embeddingTemplate = selectedTemplate.template;
+            customTemplate.value = embeddingTemplate;
+        }
+        if (!docTemplate && selectedTemplate && selectedTemplate.template) {
+            docTemplate = selectedTemplate.template;
+            documentTemplate.value = docTemplate;
+        }
+
         if (!embeddingTemplate) {
             showAlert('error', '请选择或输入embedding模板');
             return;

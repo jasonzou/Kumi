@@ -17,7 +17,7 @@ from config.settings import settings
 class MilvusDBClient(VectorDBInterface):
     """Milvus向量数据库客户端实现"""
 
-    DEFAULT_VECTOR_DIM = 1024
+    DEFAULT_VECTOR_DIM = 4096
     SYSTEM_FIELDS = {"id", "embedding", "dense_vector", "document"}
 
     def __init__(

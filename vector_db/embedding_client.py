@@ -181,24 +181,13 @@ class _OpenAIEmbeddingAPI:
     async def _encode_single_batch(
         self, texts: List[str], get_dimension: bool = False
     ) -> List[List[float]]:
-        """
-        编码单个批次的文本 (async with httpx)
-
-        Args:
-            texts: 要编码的文本列表
-            get_dimension: 是否用于获取维度（测试连接时使用），为True时失败会抛出异常
-
-        Returns:
-            向量列表
-
-        Raises:
-            当get_dimension=True且失败时抛出异常
-        """
         payload = {"model": self.model, "input": texts, "encoding_format": "float"}
         logger.debug(f"Embedding request: url={self.base_url}, model={self.model}, texts={len(texts)}")
 
-        max_retries = 5
+        max_retries = 1 
         last_error = None
+        
+        logger.info(f"payload: {payload}")
 
         async with httpx.AsyncClient(timeout=self.request_timeout) as client:
             for attempt in range(max_retries):
@@ -210,33 +199,30 @@ class _OpenAIEmbeddingAPI:
                         json=payload,
                     )
                     end_time = time.time()
-                    logger.debug(f"Embedding response: status={response.status_code}, time={end_time - start_time:.2f}s")
+                    logger.info(f"Embedding response: status={response.status_code}, time={end_time - start_time:.2f}s")
 
                     if response.status_code == 200:
                         data = response.json()
-                        embeddings = [item["embedding"] for item in data["data"]]
+                        logger.info(data)
+                        embeddings = [item for item in data["embeddings"]]
                         if not get_dimension:
                             logger.debug(f"Batch completed in {end_time - start_time:.2f}s")
                         return embeddings
                     else:
-                        logger.warning(
-                            f"API request failed with status {response.status_code}: {response.text}"
-                        )
                         error_msg = f"API请求失败: {response.status_code} - {response.text}"
+                        logger.warning(error_msg)
                         last_error = Exception(error_msg)
                         if attempt == max_retries - 1:
                             raise last_error
-                        else:
-                            logger.warning(f"{error_msg}, retrying ({attempt + 1}/{max_retries})")
-                            await asyncio.sleep(2**attempt)
+                        logger.warning(f"{error_msg}, retrying ({attempt + 1}/{max_retries})")
+                        await asyncio.sleep(20 ** attempt)
 
                 except httpx.TimeoutException as e:
                     last_error = e
                     if attempt == max_retries - 1:
                         raise httpx.TimeoutException("API请求超时")
-                    else:
-                        logger.warning(f"API request timeout, retrying ({attempt + 1}/{max_retries})")
-                        await asyncio.sleep(2**attempt)
+                    logger.warning(f"API request timeout, retrying ({attempt + 1}/{max_retries})")
+                    await asyncio.sleep(2 ** attempt)
                 except httpx.ConnectError as e:
                     last_error = e
                     raise
@@ -244,23 +230,19 @@ class _OpenAIEmbeddingAPI:
                     last_error = e
                     if attempt == max_retries - 1:
                         raise
-                    else:
-                        logger.warning(f"HTTP error: {e}, retrying ({attempt + 1}/{max_retries})")
-                        await asyncio.sleep(2**attempt)
+                    logger.warning(f"HTTP error: {e}, retrying ({attempt + 1}/{max_retries})")
+                    await asyncio.sleep(2 ** attempt)
                 except Exception as e:
                     last_error = e
                     if attempt == max_retries - 1:
                         raise Exception(f"API请求异常: {e}")
-                    else:
-                        logger.warning(f"API exception: {e}, retrying ({attempt + 1}/{max_retries})")
-                        await asyncio.sleep(2**attempt)
+                    logger.warning(f"API exception: {e}, retrying ({attempt + 1}/{max_retries})")
+                    await asyncio.sleep(2 ** attempt)
 
-        # 如果是测试连接（get_dimension=True），失败时抛出异常
         if get_dimension and last_error:
             logger.error("Batch encoding failed")
             raise last_error
 
-        # 正常向量化流程失败时返回零向量（容错处理）
         logger.error("Batch encoding failed, returning zero vectors")
         fallback_dim = getattr(self, "embedding_dim", 1024)
         return [[0.0] * fallback_dim for _ in texts]
